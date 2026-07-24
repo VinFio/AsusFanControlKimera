@@ -20,11 +20,103 @@ This project does not introduce a new hardware control engine. It combines the w
 - optional release of fan control when the application exits;
 - optional debugging through a rotating diagnostic log.
 
-## Building
+## System Requirements
+
+### Operating system and runtime
+
+- 64-bit Windows 10 or Windows 11;
+- .NET Framework 4.7.2 or a later compatible .NET Framework 4.x release;
+- an interactive desktop session.
+
+Kimera is compiled exclusively for `x64`. It is not compatible with 32-bit
+Windows and does not use the modern .NET/.NET Core desktop runtime.
+
+### ASUS software and hardware
+
+- ASUS System Control Interface v3 installed;
+- the `ASUSSystemAnalysis` service installed and running;
+- a supported ASUS laptop whose firmware exposes Fan Diagnosis through MyASUS;
+- a working `AsusWinIO64.dll` from the compatible AsusFanControl installation.
+
+Compatibility cannot be inferred from the ASUS brand alone. A model may satisfy
+the software requirements while using a different embedded controller, sensor
+mapping, or fan-control protocol.
+
+### Privileges and PsExec
+
+The current hardware library returns valid data only while Kimera runs under
+the `SYSTEM` account. Kimera therefore requires:
+
+- permission to display and approve a UAC elevation prompt;
+- Microsoft Sysinternals `PsExec.exe`, either next to Kimera or at
+  `C:\Program Files (x86)\AsusFanControl\PsExec.exe`.
+
+PsExec is not distributed with Kimera. The application first elevates as
+administrator and then uses PsExec with `-i -s` to enter the interactive SYSTEM
+session. **Start with Windows** still requires UAC confirmation at login.
+
+Official PsExec download:
+[Microsoft Sysinternals PsExec](https://learn.microsoft.com/sysinternals/downloads/psexec)
+
+### Required release files
+
+Keep these files together in the same directory:
+
+- `AsusFanControlKimera.exe`
+- `AsusFanControlKimera.exe.config`
+- `AsusWinIO64.dll`
+
+The icon is embedded in the executable; `propeller.ico` is not required at
+runtime. An Internet connection, NuGet packages, LibreHardwareMonitor, Sentry,
+Fody, and Microsoft.Extensions.DependencyInjection are not required.
+
+### Recommended environment
+
+- close AsusFanControl, other Kimera versions, FanControl, G-Helper, and any
+  other utility that directly controls the same fans;
+- keep **Safe Limits** and **Release fan control on exit** enabled;
+- verify RPM and temperature readings before relying on Manual or Fan Curve
+  mode;
+- enable Debug when diagnosing intermittent hardware or firmware behavior.
+
+When Debug is enabled, Kimera writes to
+`C:\ProgramData\AsusFanControlKimera\kimera-debug.log`. The SYSTEM account used
+by Kimera normally has permission to create and update this location.
+
+## Download
+
+A precompiled version is available from the repository's
+[Releases](https://github.com/VinFio/AsusFanControlKimera/releases) section.
+
+Download the latest `AsusFanControlKimera-vX.X.X.zip` archive, extract it, and keep the following files in the same folder:
+
+- `AsusFanControlKimera.exe`
+- `AsusFanControlKimera.exe.config`
+- `AsusWinIO64.dll`
+
+Run `AsusFanControlKimera.exe`.
+
+The .NET Framework 4.7.2 runtime is required.
+
+On the system used for development and testing, the ASUS DLL returns valid hardware data only when the application runs under the `SYSTEM` account.
+
+Kimera first requests administrator privileges and then relaunches itself through the existing `PsExec.exe` installation located at:
+
+`C:\Program Files (x86)\AsusFanControl`
+
+PsExec is not included in the release package.
+
+## Building from Source
+
+Building is only required if you want to modify the code or create your own executable.
 
 Open `AsusFanControlKimera.sln` in Visual Studio and build the `Release|x64` configuration.
 
 The .NET Framework 4.7.2 targeting pack is required.
+
+After compilation, the output files are located in:
+
+`bin\x64\Release`
 
 `AsusWinIO64.dll` must be placed next to the executable.
 
