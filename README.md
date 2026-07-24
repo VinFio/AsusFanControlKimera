@@ -26,7 +26,6 @@ This project does not introduce a new hardware control engine. It combines the w
 
 - 64-bit Windows 10 or Windows 11;
 - .NET Framework 4.7.2 or a later compatible .NET Framework 4.x release;
-- an interactive desktop session.
 
 Kimera is compiled exclusively for `x64`. It is not compatible with 32-bit
 Windows and does not use the modern .NET/.NET Core desktop runtime.
@@ -34,9 +33,7 @@ Windows and does not use the modern .NET/.NET Core desktop runtime.
 ### ASUS software and hardware
 
 - ASUS System Control Interface v3 installed;
-- the `ASUSSystemAnalysis` service installed and running;
 - a supported ASUS laptop whose firmware exposes Fan Diagnosis through MyASUS;
-- a working `AsusWinIO64.dll` from the compatible AsusFanControl installation.
 
 Compatibility cannot be inferred from the ASUS brand alone. A model may satisfy
 the software requirements while using a different embedded controller, sensor
