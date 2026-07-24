@@ -1,71 +1,117 @@
 # AsusFanControlKimera
 
-Interfaccia Windows Forms completa costruita sopra il motore hardware funzionante
-di AsusFanControl.
+AsusFanControlKimera is a fan control application created by combining two existing open-source projects:
 
-## Funzioni
+- **AsusFanControl**, used as the hardware communication and fan control engine;
+- **AsusFanControlEnhanced**, used as the basis for the graphical interface, controls, profiles, and related features.
 
-- modalità sistema ASUS, manuale e curva;
-- curva grafica modificabile e formato testuale `temperatura,percentuale`;
-- isteresi e intervallo di aggiornamento configurabili;
-- lettura temperatura CPU e RPM di tutte le ventole;
-- limiti di sicurezza opzionali (40–99%);
-- area di notifica, avvio minimizzato e avvio con Windows;
-- rilascio opzionale del controllo ventole all'uscita.
-- debug opzionale con registro diagnostico circolare.
+This project does not introduce a new hardware control engine. It combines the working hardware layer from AsusFanControl with the interface and profile-management functionality derived from AsusFanControlEnhanced.
 
-## Compilazione
+## Features
 
-Aprire `AsusFanControlKimera.sln` con Visual Studio e compilare `Release|x64`.
-È richiesto il targeting pack di .NET Framework 4.7.2.
+- ASUS System, Manual, and Fan Curve modes;
+- editable graphical fan curve;
+- textual fan curve format using `temperature,percentage`;
+- configurable hysteresis and update interval;
+- CPU temperature and RPM readings for all detected fans;
+- optional safety limits from 40% to 99%;
+- system tray support;
+- minimized startup and startup with Windows;
+- optional release of fan control when the application exits;
+- optional debugging through a rotating diagnostic log.
 
-La DLL `AsusWinIO64.dll` deve trovarsi accanto all'eseguibile. Su questo sistema
-la DLL ASUS restituisce dati validi soltanto sotto l'account `SYSTEM`. Kimera si
-eleva prima come amministratore e poi si rilancia tramite il `PsExec.exe` già
-installato in `C:\Program Files (x86)\AsusFanControl`, replicando il comportamento
-del `run.bat` dell'applicazione funzionante. PsExec non è incluso nel progetto.
+## Building
 
-Kimera conserva il SID dell'utente interattivo prima del rilancio come SYSTEM.
-L'opzione “Avvia con Windows” scrive quindi nel profilo dell'utente reale; al
-login viene comunque richiesta la conferma UAC necessaria per PsExec. Un mutex
-globale impedisce a sessioni Windows diverse di controllare contemporaneamente
-lo stesso hardware.
+Open `AsusFanControlKimera.sln` in Visual Studio and build the `Release|x64` configuration.
 
-## Sicurezza
+The .NET Framework 4.7.2 targeting pack is required.
 
-Con “Limiti sicuri” attivo, le modalità manuale e curva applicano valori compresi
-tra 40% e 99%. La modalità “Sistema ASUS” usa il valore speciale 0 per disattivare
-il test mode e restituire il controllo al firmware.
+`AsusWinIO64.dll` must be placed next to the executable.
 
-Kimera passa automaticamente alla modalità sistema ASUS quando rileva:
+On the system used for development and testing, the ASUS DLL returns valid hardware data only when the application runs under the `SYSTEM` account.
 
-- due temperature consecutive fuori dall'intervallo plausibile 10–115 °C;
-- tre errori consecutivi durante la lettura dell'hardware;
-- una ventola a 0 RPM per tre letture consecutive mentre il PWM comandato è
-  almeno 40%.
+Kimera first requests administrator privileges and then relaunches itself through the existing `PsExec.exe` installation located at:
 
-In caso di errore durante un comando multi-ventola, il controller tenta inoltre
-di disattivare il test mode su tutte le ventole precedentemente rilevate. La
-disattivazione dei limiti sicuri richiede una conferma esplicita.
+`C:\Program Files (x86)\AsusFanControl`
 
-Anche la disattivazione del rilascio all'uscita richiede conferma, perché
-l'ultimo PWM potrebbe rimanere attivo dopo la chiusura.
+This reproduces the behavior of the `run.bat` file used by the working AsusFanControl application.
 
-Queste protezioni coprono gli errori gestibili. Un arresto forzato del processo,
-un blocco nella DLL nativa o una perdita improvvisa di alimentazione non possono
-essere gestiti con certezza da un'applicazione nello stesso processo.
+PsExec is not included in this project.
 
-## Registro diagnostico
+Before relaunching as `SYSTEM`, Kimera preserves the SID of the interactive user. The **Start with Windows** option therefore writes its configuration to the actual user's profile.
 
-`Opzioni > Debug` abilita un registro in:
+A UAC confirmation is still required at login because PsExec requires elevation.
+
+A global mutex prevents multiple Windows sessions from controlling the same hardware at the same time.
+
+## Safety
+
+When **Safe Limits** is enabled, Manual and Fan Curve modes restrict fan values to the range between 40% and 99%.
+
+The **ASUS System** mode uses the special value `0` to disable test mode and return fan control to the firmware.
+
+Kimera automatically switches back to ASUS System mode when it detects any of the following conditions:
+
+- two consecutive temperature readings outside the plausible range of 10–115 °C;
+- three consecutive hardware reading errors;
+- a fan reporting 0 RPM for three consecutive readings while the requested PWM value is at least 40%.
+
+If an error occurs while sending a command to multiple fans, the controller also attempts to disable test mode on every previously detected fan.
+
+Disabling Safe Limits requires explicit confirmation.
+
+Disabling fan-control release on exit also requires confirmation because the last applied PWM value may remain active after the application is closed.
+
+These protections cover errors that can be handled by the application. A forced process termination, a lock-up inside the native DLL, or a sudden loss of power cannot be handled reliably by an application running in the same process.
+
+## Diagnostic Log
+
+The diagnostic log can be enabled from:
+
+`Options > Debug`
+
+The log file is stored at:
 
 `C:\ProgramData\AsusFanControlKimera\kimera-debug.log`
 
-Il file contiene snapshot di temperatura, RPM e PWM, cambi di modalità, errori
-e attivazioni fail-safe. La dimensione massima è 1 MB; raggiunto il limite,
-Kimera conserva automaticamente le righe più recenti per circa 768 KB. Qualunque
-errore di scrittura del registro viene ignorato per non interferire con il
-controllo delle ventole.
+It contains:
 
-Quando si attiva un fail-safe appare una finestra persistente con ora, causa,
-ventole coinvolte, ultimi valori osservati ed esito del rilascio al firmware.
+- temperature, RPM, and PWM snapshots;
+- mode changes;
+- hardware and control errors;
+- fail-safe activations.
+
+The maximum file size is 1 MB. When this limit is reached, Kimera automatically retains approximately 768 KB of the most recent log entries.
+
+Any log-writing error is ignored to prevent diagnostic logging from interfering with fan control.
+
+When a fail-safe condition is triggered, Kimera displays a persistent warning window containing:
+
+- the activation time;
+- the detected cause;
+- the affected fans;
+- the latest observed values;
+- the result of the attempt to return control to the firmware.
+
+## Credits and Attribution
+
+AsusFanControlKimera combines code and functionality from two existing projects:
+
+- [AsusFanControl](https://github.com/Karmel0x/AsusFanControl), which provides the hardware communication and fan control engine;
+- [AsusFanControlEnhanced](https://github.com/Darren80/AsusFanControlEnhanced), which provides the basis for the graphical interface, controls, profiles, and related functionality.
+
+The original projects remain the work of their respective authors.
+
+Users and contributors should refer to the original repositories and their license files for the applicable attribution, redistribution, and licensing requirements.
+
+## Compatibility and Disclaimer
+
+AsusFanControlKimera has been developed and tested primarily on an **ASUS Vivobook V16 V3607VU**.
+
+Compatibility with other ASUS laptop models is not guaranteed. Hardware interfaces, fan controllers, firmware behavior, sensor mappings, and supported commands may differ between models.
+
+This project is still under development. Bugs, incomplete features, incorrect readings, unexpected behavior, and other issues may be present and may require further investigation and fixes.
+
+The software is provided **as is**, without warranties or guarantees of any kind. Use it at your own risk. The authors and contributors are not responsible for overheating, instability, data loss, hardware damage, or any other direct or indirect consequences resulting from its use.
+
+Users should monitor system temperatures carefully and verify that fan control behaves correctly on their specific hardware before relying on the application.
