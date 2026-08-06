@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using AsusFanControlKimera.Localization;
 
 namespace AsusFanControlKimera.Hardware
 {
@@ -153,8 +154,7 @@ namespace AsusFanControlKimera.Hardware
             if (lastKnownFanCount >= 1 && lastKnownFanCount <= 8)
                 return lastKnownFanCount;
 
-            throw new InvalidOperationException(
-                "Il driver ASUS non ha restituito un conteggio ventole valido (1-8) dopo 20 tentativi.");
+            throw new InvalidOperationException(Strings.Get("DriverFanCount"));
         }
 
         private bool TryReleaseKnownFans()

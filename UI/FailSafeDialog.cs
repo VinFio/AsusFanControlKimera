@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
 using AsusFanControlKimera.Diagnostics;
+using AsusFanControlKimera.Localization;
 
 namespace AsusFanControlKimera.UI
 {
@@ -16,7 +17,7 @@ namespace AsusFanControlKimera.UI
             string snapshot,
             bool released)
         {
-            Text = "Kimera - FAIL-SAFE attivato";
+            Text = Strings.Get("FailSafeTitle");
             StartPosition = FormStartPosition.CenterScreen;
             TopMost = true;
             ControlBox = false;
@@ -29,8 +30,8 @@ namespace AsusFanControlKimera.UI
             var title = new Label
             {
                 Text = released
-                    ? "Controllo restituito al firmware ASUS"
-                    : "ATTENZIONE: rilascio al firmware non confermato",
+                    ? Strings.Get("FailSafeReleased")
+                    : Strings.Get("FailSafeUnconfirmed"),
                 ForeColor = released ? Color.DarkGreen : Color.Firebrick,
                 Font = new Font(Font, FontStyle.Bold),
                 Dock = DockStyle.Top,
@@ -45,14 +46,9 @@ namespace AsusFanControlKimera.UI
                 ScrollBars = ScrollBars.Vertical,
                 Dock = DockStyle.Fill,
                 BackColor = SystemColors.Window,
-                Text = string.Format(
-                    "Ora: {0:yyyy-MM-dd HH:mm:ss}\r\n\r\n" +
-                    "Causa: {1}\r\n\r\n" +
-                    "Ventola/e coinvolta/e: {2}\r\n\r\n" +
-                    "Ultimi valori: {3}\r\n\r\n" +
-                    "Rilascio al firmware: {4}",
+                Text = Strings.Format("FailSafeDetails",
                     occurredAt, cause, affectedFans, snapshot,
-                    released ? "RIUSCITO" : "NON CONFERMATO")
+                    released ? Strings.Get("Succeeded") : Strings.Get("NotConfirmed"))
             };
 
             var buttons = new FlowLayoutPanel
@@ -62,11 +58,11 @@ namespace AsusFanControlKimera.UI
                 FlowDirection = FlowDirection.RightToLeft,
                 Padding = new Padding(8)
             };
-            var acknowledge = new Button { Text = "Ho compreso", Size = new Size(110, 30) };
+            var acknowledge = new Button { Text = Strings.Get("Acknowledge"), Size = new Size(110, 30) };
             acknowledge.Click += delegate { Close(); };
             var openLog = new Button
             {
-                Text = "Apri registro",
+                Text = Strings.Get("OpenLog"),
                 Size = new Size(110, 30),
                 Enabled = DiagnosticLogger.Enabled && File.Exists(DiagnosticLogger.LogPath)
             };
@@ -83,7 +79,7 @@ namespace AsusFanControlKimera.UI
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(ex.Message, "Impossibile aprire il registro",
+                    MessageBox.Show(ex.Message, Strings.Get("OpenLogFailed"),
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
             };

@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using AsusFanControlKimera.Diagnostics;
 using AsusFanControlKimera.Hardware;
+using AsusFanControlKimera.Localization;
 using AsusFanControlKimera.Model;
 using AsusFanControlKimera.Properties;
 using Microsoft.Win32;
@@ -34,9 +35,15 @@ namespace AsusFanControlKimera.UI
         private readonly ToolStripMenuItem startMinimizedItem = new ToolStripMenuItem();
         private readonly ToolStripMenuItem startWithWindowsItem = new ToolStripMenuItem();
         private readonly ToolStripMenuItem debugItem = new ToolStripMenuItem();
+        private readonly ToolStripMenuItem italianLanguageItem = new ToolStripMenuItem();
+        private readonly ToolStripMenuItem englishLanguageItem = new ToolStripMenuItem();
         private readonly NotifyIcon trayIcon = new NotifyIcon();
         private readonly Timer refreshTimer = new Timer();
         private readonly Timer startupTimer = new Timer();
+        private readonly IDictionary<Control, string> localizedControls =
+            new Dictionary<Control, string>();
+        private readonly IDictionary<ToolStripItem, string> localizedItems =
+            new Dictionary<ToolStripItem, string>();
         private AsusFanController controller;
         private List<Point> curvePoints;
         private int lastCurveTemperature = int.MinValue;
@@ -75,13 +82,13 @@ namespace AsusFanControlKimera.UI
         private void BuildUi()
         {
             var menu = new MenuStrip();
-            var options = new ToolStripMenuItem("Opzioni");
-            safeLimitsItem.Text = "Limiti sicuri (minimo 40%, massimo 99%)";
-            releaseOnExitItem.Text = "Rilascia il controllo ventole all'uscita";
-            minimizeToTrayItem.Text = "Riduci nell'area di notifica";
-            startMinimizedItem.Text = "Avvia ridotto nell'area di notifica";
-            startWithWindowsItem.Text = "Avvia con Windows (richiede conferma UAC)";
-            debugItem.Text = "Debug";
+            var options = LocalizeItem(new ToolStripMenuItem(), "Options");
+            LocalizeItem(safeLimitsItem, "SafeLimits");
+            LocalizeItem(releaseOnExitItem, "ReleaseOnExit");
+            LocalizeItem(minimizeToTrayItem, "MinimizeToTray");
+            LocalizeItem(startMinimizedItem, "StartMinimized");
+            LocalizeItem(startWithWindowsItem, "StartWithWindows");
+            LocalizeItem(debugItem, "Debug");
             safeLimitsItem.CheckOnClick = releaseOnExitItem.CheckOnClick =
                 minimizeToTrayItem.CheckOnClick = startMinimizedItem.CheckOnClick =
                 startWithWindowsItem.CheckOnClick = true;
@@ -92,14 +99,25 @@ namespace AsusFanControlKimera.UI
             startMinimizedItem.CheckedChanged += SettingsMenuChanged;
             startWithWindowsItem.CheckedChanged += StartWithWindowsChanged;
             debugItem.CheckedChanged += DebugChanged;
+            var language = LocalizeItem(new ToolStripMenuItem(), "Language");
+            LocalizeItem(italianLanguageItem, "Italian");
+            LocalizeItem(englishLanguageItem, "English");
+            italianLanguageItem.Click += delegate { ChangeLanguage(Strings.Italian); };
+            englishLanguageItem.Click += delegate { ChangeLanguage(Strings.English); };
+            language.DropDownItems.AddRange(new ToolStripItem[] {
+                italianLanguageItem, englishLanguageItem
+            });
             options.DropDownItems.AddRange(new ToolStripItem[] {
                 safeLimitsItem, releaseOnExitItem, minimizeToTrayItem,
                 new ToolStripSeparator(), startMinimizedItem, startWithWindowsItem,
+                new ToolStripSeparator(), language,
                 new ToolStripSeparator(), debugItem,
-                new ToolStripSeparator(), new ToolStripMenuItem("Ripristina impostazioni", null, ResetSettings)
+                new ToolStripSeparator(), LocalizeItem(
+                    new ToolStripMenuItem(null, null, ResetSettings), "ResetSettings")
             });
-            var help = new ToolStripMenuItem("Aiuto");
-            help.DropDownItems.Add(new ToolStripMenuItem("Informazioni", null, ShowAbout));
+            var help = LocalizeItem(new ToolStripMenuItem(), "Help");
+            help.DropDownItems.Add(LocalizeItem(
+                new ToolStripMenuItem(null, null, ShowAbout), "About"));
             menu.Items.AddRange(new ToolStripItem[] { options, help });
             MainMenuStrip = menu;
             Controls.Add(menu);
@@ -126,7 +144,8 @@ namespace AsusFanControlKimera.UI
             top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32));
             root.Controls.Add(top, 0, 0);
 
-            var modeBox = new GroupBox { Text = "Modalità di controllo", Dock = DockStyle.Fill };
+            var modeBox = LocalizeControl(
+                new GroupBox { Dock = DockStyle.Fill }, "ControlMode");
             var modeFlow = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -134,9 +153,9 @@ namespace AsusFanControlKimera.UI
                 WrapContents = false,
                 Padding = new Padding(8)
             };
-            systemMode.Text = "Sistema ASUS (controllo disattivato)";
-            manualMode.Text = "Manuale";
-            curveMode.Text = "Curva temperatura";
+            LocalizeControl(systemMode, "AsusSystemDisabled");
+            LocalizeControl(manualMode, "Manual");
+            LocalizeControl(curveMode, "TemperatureCurve");
             systemMode.AutoSize = manualMode.AutoSize = curveMode.AutoSize = true;
             systemMode.CheckedChanged += ModeChanged;
             manualMode.CheckedChanged += ModeChanged;
@@ -145,7 +164,8 @@ namespace AsusFanControlKimera.UI
             modeBox.Controls.Add(modeFlow);
             top.Controls.Add(modeBox, 0, 0);
 
-            var manualBox = new GroupBox { Text = "Velocità manuale", Dock = DockStyle.Fill };
+            var manualBox = LocalizeControl(
+                new GroupBox { Dock = DockStyle.Fill }, "ManualSpeed");
             manualSpeed.Minimum = 1;
             manualSpeed.Maximum = 100;
             manualSpeed.TickFrequency = 10;
@@ -175,7 +195,8 @@ namespace AsusFanControlKimera.UI
             manualBox.Controls.Add(manualValue);
             top.Controls.Add(manualBox, 1, 0);
 
-            var statsBox = new GroupBox { Text = "Stato hardware", Dock = DockStyle.Fill };
+            var statsBox = LocalizeControl(
+                new GroupBox { Dock = DockStyle.Fill }, "HardwareStatus");
             var stats = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(8, 4, 8, 4) };
             stats.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 68));
             stats.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -188,36 +209,34 @@ namespace AsusFanControlKimera.UI
             rpmValue.Dock = DockStyle.Fill;
             rpmValue.AutoEllipsis = true;
             rpmValue.TextAlign = ContentAlignment.MiddleLeft;
-            stats.Controls.Add(new Label
+            stats.Controls.Add(LocalizeControl(new Label
             {
-                Text = "CPU:",
                 Dock = DockStyle.Fill,
                 AutoSize = false,
                 TextAlign = ContentAlignment.MiddleLeft
-            }, 0, 0);
+            }, "CpuLabel"), 0, 0);
             stats.Controls.Add(temperatureValue, 1, 0);
-            stats.Controls.Add(new Label
+            stats.Controls.Add(LocalizeControl(new Label
             {
-                Text = "Ventole:",
                 Dock = DockStyle.Fill,
                 AutoSize = false,
                 TextAlign = ContentAlignment.MiddleLeft
-            }, 0, 1);
+            }, "FansLabel"), 0, 1);
             stats.Controls.Add(rpmValue, 1, 1);
-            var refreshButton = new Button
+            var refreshButton = LocalizeControl(new Button
             {
-                Text = "Aggiorna",
                 AutoSize = false,
                 Size = new Size(92, 28),
                 Margin = new Padding(0, 3, 0, 0)
-            };
+            }, "Refresh");
             refreshButton.Click += delegate { RefreshHardware(true); };
             stats.Controls.Add(refreshButton, 0, 2);
             stats.SetColumnSpan(refreshButton, 2);
             statsBox.Controls.Add(stats);
             top.Controls.Add(statsBox, 2, 0);
 
-            var curveBox = new GroupBox { Text = "Curva ventole — doppio clic aggiunge, trascina sposta, clic destro elimina", Dock = DockStyle.Fill };
+            var curveBox = LocalizeControl(
+                new GroupBox { Dock = DockStyle.Fill }, "CurveHelp");
             curveEditor.Dock = DockStyle.Fill;
             curveEditor.CurveChanged += CurveEditorChanged;
             curveBox.Controls.Add(curveEditor);
@@ -236,8 +255,10 @@ namespace AsusFanControlKimera.UI
             curveControls.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             curveText.Dock = DockStyle.Fill;
             curveText.Font = new Font("Consolas", 9F);
-            var applyCurve = new Button { Text = "Applica", Dock = DockStyle.Fill };
-            var resetCurve = new Button { Text = "Predefinita", Dock = DockStyle.Fill };
+            var applyCurve = LocalizeControl(
+                new Button { Dock = DockStyle.Fill }, "Apply");
+            var resetCurve = LocalizeControl(
+                new Button { Dock = DockStyle.Fill }, "Default");
             var curveButtons = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -265,12 +286,11 @@ namespace AsusFanControlKimera.UI
                 WrapContents = false,
                 Padding = new Padding(4, 8, 0, 0)
             };
-            var hysteresisLabel = new Label
+            var hysteresisLabel = LocalizeControl(new Label
             {
-                Text = "Isteresi °C",
                 AutoSize = true,
                 Margin = new Padding(0, 5, 8, 0)
-            };
+            }, "Hysteresis");
             hysteresis.Dock = DockStyle.None;
             hysteresis.Width = 68;
             hysteresisPanel.Controls.Add(hysteresisLabel);
@@ -283,12 +303,11 @@ namespace AsusFanControlKimera.UI
                 WrapContents = false,
                 Padding = new Padding(4, 8, 0, 0)
             };
-            var intervalLabel = new Label
+            var intervalLabel = LocalizeControl(new Label
             {
-                Text = "Intervallo ms",
                 AutoSize = true,
                 Margin = new Padding(0, 5, 8, 0)
-            };
+            }, "Interval");
             interval.Dock = DockStyle.None;
             interval.Width = 76;
             intervalPanel.Controls.Add(intervalLabel);
@@ -319,10 +338,19 @@ namespace AsusFanControlKimera.UI
             root.Controls.Add(statusValue, 0, 3);
 
             var trayMenu = new ContextMenuStrip();
-            trayMenu.Items.Add("Apri", null, delegate { RestoreFromTray(); });
-            trayMenu.Items.Add("Controllo sistema ASUS", null, delegate { systemMode.Checked = true; });
+            var trayOpen = LocalizeItem(new ToolStripMenuItem(), "TrayOpen");
+            trayOpen.Click += delegate { RestoreFromTray(); };
+            var traySystem = LocalizeItem(new ToolStripMenuItem(), "TrayAsusSystem");
+            traySystem.Click += delegate { systemMode.Checked = true; };
+            var trayCurve = LocalizeItem(new ToolStripMenuItem(), "TrayTemperatureCurve");
+            trayCurve.Click += delegate { curveMode.Checked = true; };
+            trayMenu.Items.Add(trayOpen);
+            trayMenu.Items.Add(traySystem);
+            trayMenu.Items.Add(trayCurve);
             trayMenu.Items.Add(new ToolStripSeparator());
-            trayMenu.Items.Add("Esci", null, delegate { exiting = true; Close(); });
+            var trayExit = LocalizeItem(new ToolStripMenuItem(), "TrayExit");
+            trayExit.Click += delegate { exiting = true; Close(); };
+            trayMenu.Items.Add(trayExit);
             trayIcon.Text = "Asus Fan Control Kimera";
             Icon applicationIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             trayIcon.Icon = applicationIcon ?? SystemIcons.Application;
@@ -346,6 +374,8 @@ namespace AsusFanControlKimera.UI
                 Settings.Default.UpgradeRequired = false;
                 Settings.Default.Save();
             }
+            Strings.SetLanguage(Settings.Default.Language);
+            ApplyLocalizedText();
             if (!string.IsNullOrEmpty(Program.InteractiveUserSid) &&
                 Settings.Default.InteractiveUserSid != Program.InteractiveUserSid)
             {
@@ -381,7 +411,7 @@ namespace AsusFanControlKimera.UI
             {
                 controller = new AsusFanController();
                 DiagnosticLogger.Log("STARTUP", "Motore AsusFanControl inizializzato.");
-                statusValue.Text = "Motore inizializzato; attendo che la tabella hardware ASUS sia pronta…";
+                statusValue.Text = Strings.Get("EngineWaiting");
                 SetControlsAvailable(false);
                 refreshTimer.Interval = (int)interval.Value;
                 startupTimer.Start();
@@ -389,13 +419,12 @@ namespace AsusFanControlKimera.UI
             catch (Exception ex)
             {
                 DiagnosticLogger.Log("ERROR", "Inizializzazione hardware fallita: " + ex);
-                statusValue.Text = "Hardware non disponibile: " + ex.Message;
+                statusValue.Text = Strings.Format("HardwareUnavailable", ex.Message);
                 statusValue.ForeColor = Color.Firebrick;
                 systemMode.Checked = true;
                 SetControlsAvailable(false);
-                MessageBox.Show("Impossibile inizializzare AsusWinIO64.\n\n" + ex.Message +
-                    "\n\nAvvia l'applicazione come amministratore e verifica che il modello ASUS sia supportato.",
-                    "Kimera - hardware non disponibile", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(Strings.Format("HardwareInitFailedText", ex.Message),
+                    Strings.Get("HardwareUnavailableTitle"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -407,7 +436,7 @@ namespace AsusFanControlKimera.UI
                 int fanCount = await Task.Run(delegate { return controller.FanCount; });
                 DiagnosticLogger.Log("STARTUP",
                     string.Format("Hardware pronto; fanCount={0}.", fanCount));
-                statusValue.Text = string.Format("Hardware pronto: {0} ventola/e rilevata/e.", fanCount);
+                statusValue.Text = Strings.Format("HardwareReady", fanCount);
                 SetControlsAvailable(true);
                 DiagnosticLogger.Log("MODE",
                     "Modalità ripristinata all'avvio: " + CurrentModeName());
@@ -420,10 +449,9 @@ namespace AsusFanControlKimera.UI
                 DiagnosticLogger.Log("ERROR", "Tabella hardware non pronta: " + ex);
                 SetControlsAvailable(false);
                 statusValue.ForeColor = Color.Firebrick;
-                statusValue.Text = "Hardware non pronto: " + ex.Message;
-                MessageBox.Show(ex.Message +
-                    "\n\nChiudi eventuali altre applicazioni di controllo ASUS e riprova.",
-                    "Kimera - ventole non rilevate", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                statusValue.Text = Strings.Format("HardwareNotReady", ex.Message);
+                MessageBox.Show(Strings.Format("HardwareNotReadyText", ex.Message),
+                    Strings.Get("FansNotDetectedTitle"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -456,7 +484,7 @@ namespace AsusFanControlKimera.UI
             if (systemMode.Checked)
             {
                 Settings.Default.Mode = "System";
-                ApplySpeed(0, "Controllo rilasciato al sistema ASUS.", true);
+                ApplySpeed(0, Strings.Get("SystemControlReleased"), true);
             }
             else if (manualMode.Checked)
             {
@@ -466,7 +494,7 @@ namespace AsusFanControlKimera.UI
             else if (curveMode.Checked)
             {
                 Settings.Default.Mode = "Curve";
-                statusValue.Text = "Curva attiva; in attesa della temperatura.";
+                statusValue.Text = Strings.Get("CurveWaiting");
                 RefreshHardware(true);
             }
             Settings.Default.Save();
@@ -479,7 +507,7 @@ namespace AsusFanControlKimera.UI
                 manualSpeed.Value = speed;
             Settings.Default.ManualSpeed = speed;
             Settings.Default.Save();
-            ApplySpeed(speed, string.Format("Modalità manuale: {0}% PWM.", speed), force);
+            ApplySpeed(speed, Strings.Format("ManualStatus", speed), force);
         }
 
         private void ApplySpeed(int speed, string status, bool force)
@@ -494,15 +522,17 @@ namespace AsusFanControlKimera.UI
                     "mode={0}; requested={1}%; duty={2}/255; fans={3}",
                     CurrentModeName(), speed, controller.LastDuty, controller.LastFanCount));
                 statusValue.ForeColor = Color.DimGray;
-                statusValue.Text = string.Format("{0} Comando inviato a {1} ventola/e (duty {2}/255).",
+                statusValue.Text = Strings.Format("CommandSent",
                     status, controller.LastFanCount, controller.LastDuty);
-                trayIcon.Text = TruncateTrayText(speed == 0 ? "Kimera - Sistema ASUS" : string.Format("Kimera - {0}% PWM", speed));
+                trayIcon.Text = TruncateTrayText(speed == 0
+                    ? Strings.Get("TraySystem")
+                    : string.Format("Kimera - {0}% PWM", speed));
             }
             catch (Exception ex)
             {
                 DiagnosticLogger.Log("ERROR", "Comando ventole fallito: " + ex);
                 statusValue.ForeColor = Color.Firebrick;
-                statusValue.Text = "Errore controllo ventole: " + ex.Message;
+                statusValue.Text = Strings.Format("FanControlError", ex.Message);
             }
         }
 
@@ -550,9 +580,7 @@ namespace AsusFanControlKimera.UI
                         .Select((rpm, index) => new { rpm, index })
                         .Where(item => item.rpm <= 0)
                         .Select(item => "F" + (item.index + 1)));
-                    ActivateFailSafe(
-                        "Una ventola ha restituito 0 RPM per tre letture consecutive.",
-                        affectedFans);
+                    ActivateFailSafe(Strings.Get("ZeroRpmReason"), affectedFans);
                     return;
                 }
 
@@ -560,13 +588,10 @@ namespace AsusFanControlKimera.UI
                 {
                     consecutiveInvalidTemperatures++;
                     statusValue.ForeColor = Color.Firebrick;
-                    statusValue.Text = string.Format(
-                        "Temperatura ASUS non valida ({0} °C), tentativo {1}/2: curva sospesa.",
+                    statusValue.Text = Strings.Format("InvalidTemperatureStatus",
                         temperature, consecutiveInvalidTemperatures);
                     if (consecutiveInvalidTemperatures >= 2)
-                        ActivateFailSafe(
-                            "Il sensore ASUS ha restituito due temperature non valide consecutive.",
-                            "-");
+                        ActivateFailSafe(Strings.Get("InvalidTemperatureReason"), "-");
                     return;
                 }
                 consecutiveInvalidTemperatures = 0;
@@ -576,7 +601,7 @@ namespace AsusFanControlKimera.UI
                      Math.Abs(temperature - lastCurveTemperature) >= (int)hysteresis.Value))
                 {
                     int speed = SafeSpeed(FanCurve.Evaluate(curvePoints, temperature));
-                    ApplySpeed(speed, string.Format("Curva: {0} °C → {1}% PWM.", temperature, speed), false);
+                    ApplySpeed(speed, Strings.Format("CurveStatus", temperature, speed), false);
                     lastCurveTemperature = temperature;
                 }
             }
@@ -586,10 +611,10 @@ namespace AsusFanControlKimera.UI
                 DiagnosticLogger.Log("ERROR", string.Format(
                     "Lettura hardware fallita ({0}/3): {1}", consecutiveReadFailures, ex));
                 statusValue.ForeColor = Color.Firebrick;
-                statusValue.Text = string.Format("Errore lettura hardware ({0}/3): {1}",
+                statusValue.Text = Strings.Format("HardwareReadError",
                     consecutiveReadFailures, ex.Message);
                 if (consecutiveReadFailures >= 3)
-                    ActivateFailSafe("Tre letture hardware consecutive sono fallite.", "-");
+                    ActivateFailSafe(Strings.Get("HardwareReadReason"), "-");
             }
             finally
             {
@@ -622,7 +647,8 @@ namespace AsusFanControlKimera.UI
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message, "Curva non valida", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(ex.Message, Strings.Get("InvalidCurveTitle"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -651,9 +677,7 @@ namespace AsusFanControlKimera.UI
             if (ReferenceEquals(sender, safeLimitsItem) && !safeLimitsItem.Checked)
             {
                 DialogResult answer = MessageBox.Show(
-                    "Disattivando i limiti sicuri sarà possibile comandare le ventole fino all'1%. " +
-                    "Valori troppo bassi possono arrestare fisicamente una ventola.\n\nContinuare?",
-                    "Kimera - impostazione potenzialmente pericolosa",
+                    Strings.Get("UnsafeLimitsText"), Strings.Get("UnsafeLimitsTitle"),
                     MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                 if (answer != DialogResult.Yes)
                 {
@@ -666,10 +690,7 @@ namespace AsusFanControlKimera.UI
             if (ReferenceEquals(sender, releaseOnExitItem) && !releaseOnExitItem.Checked)
             {
                 DialogResult answer = MessageBox.Show(
-                    "Disattivando questa opzione, la chiusura normale di Kimera non restituirà " +
-                    "il controllo delle ventole al firmware ASUS. L'ultimo test mode/PWM può " +
-                    "rimanere attivo dopo l'uscita.\n\nContinuare?",
-                    "Kimera - controllo ventole attivo dopo l'uscita",
+                    Strings.Get("ReleaseDisabledText"), Strings.Get("ReleaseDisabledTitle"),
                     MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                 if (answer != DialogResult.Yes)
                 {
@@ -709,7 +730,7 @@ namespace AsusFanControlKimera.UI
                 {
                     if (key == null)
                         throw new InvalidOperationException(
-                            "Il profilo dell'utente interattivo non è disponibile.");
+                            Strings.Get("InteractiveProfileUnavailable"));
                     if (startWithWindowsItem.Checked)
                         key.SetValue("AsusFanControlKimera", "\"" + Application.ExecutablePath + "\"");
                     else
@@ -719,7 +740,7 @@ namespace AsusFanControlKimera.UI
             catch (Exception ex)
             {
                 DiagnosticLogger.Log("ERROR", "Avvio automatico non modificato: " + ex);
-                MessageBox.Show("Impossibile modificare l'avvio automatico:\n" + ex.Message,
+                MessageBox.Show(Strings.Format("StartupChangeFailed", ex.Message),
                     "Kimera", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 loading = true;
                 startWithWindowsItem.Checked = IsStartupEnabled();
@@ -738,8 +759,8 @@ namespace AsusFanControlKimera.UI
             DiagnosticLogger.Configure(debugItem.Checked);
             statusValue.ForeColor = Color.DimGray;
             statusValue.Text = debugItem.Checked
-                ? "Debug attivo: " + DiagnosticLogger.LogPath
-                : "Debug disattivato.";
+                ? Strings.Format("DebugEnabled", DiagnosticLogger.LogPath)
+                : Strings.Get("DebugDisabled");
         }
 
         private bool IsStartupEnabled()
@@ -823,7 +844,7 @@ namespace AsusFanControlKimera.UI
 
         private void ResetSettings(object sender, EventArgs e)
         {
-            if (MessageBox.Show("Ripristinare tutte le impostazioni?", "Kimera",
+            if (MessageBox.Show(Strings.Get("ResetPrompt"), "Kimera",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 return;
             Settings.Default.Reset();
@@ -836,9 +857,56 @@ namespace AsusFanControlKimera.UI
         private void ShowAbout(object sender, EventArgs e)
         {
             string version = Assembly.GetExecutingAssembly().GetName().Version.ToString();
-            MessageBox.Show("Asus Fan Control Kimera\nVersione " + version +
-                "\n\nMotore compatibile con AsusFanControl.\nUI e gestione curva reimplementate.",
-                "Informazioni", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(Strings.Format("AboutText", version), Strings.Get("About"),
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private T LocalizeControl<T>(T control, string key) where T : Control
+        {
+            localizedControls[control] = key;
+            control.Text = Strings.Get(key);
+            return control;
+        }
+
+        private T LocalizeItem<T>(T item, string key) where T : ToolStripItem
+        {
+            localizedItems[item] = key;
+            item.Text = Strings.Get(key);
+            return item;
+        }
+
+        private void ApplyLocalizedText()
+        {
+            foreach (KeyValuePair<Control, string> entry in localizedControls)
+                entry.Key.Text = Strings.Get(entry.Value);
+            foreach (KeyValuePair<ToolStripItem, string> entry in localizedItems)
+                entry.Key.Text = Strings.Get(entry.Value);
+
+            italianLanguageItem.Checked = Strings.CurrentLanguage == Strings.Italian;
+            englishLanguageItem.Checked = Strings.CurrentLanguage == Strings.English;
+            curveEditor.Invalidate();
+            PerformLayout();
+        }
+
+        private void ChangeLanguage(string language)
+        {
+            if (Strings.CurrentLanguage == language)
+                return;
+
+            Strings.SetLanguage(language);
+            Settings.Default.Language = Strings.CurrentLanguage;
+            Settings.Default.Save();
+            ApplyLocalizedText();
+            statusValue.ForeColor = Color.DimGray;
+            statusValue.Text = Strings.Get("LanguageChanged");
+            if (!failSafeActive)
+            {
+                trayIcon.Text = TruncateTrayText(lastAppliedSpeed == 0
+                    ? Strings.Get("TraySystem")
+                    : lastAppliedSpeed > 0
+                        ? string.Format("Kimera - {0}% PWM", lastAppliedSpeed)
+                        : "Asus Fan Control Kimera");
+            }
         }
 
         private static int Clamp(int value, int minimum, int maximum)
@@ -894,15 +962,14 @@ namespace AsusFanControlKimera.UI
 
             statusValue.ForeColor = Color.Firebrick;
             statusValue.Text = released
-                ? "FAIL-SAFE: controllo restituito al firmware ASUS. " + reason
-                : "FAIL-SAFE: rilascio al firmware non confermato. " + reason;
+                ? Strings.Format("FailSafeReleasedStatus", reason)
+                : Strings.Format("FailSafeUnconfirmedStatus", reason);
             string rpmSnapshot = lastObservedFanSpeeds == null ||
                 lastObservedFanSpeeds.Count == 0
                 ? "-"
                 : string.Join(", ", lastObservedFanSpeeds.Select((rpm, index) =>
                     string.Format("F{0}:{1} RPM", index + 1, rpm)));
-            string snapshot = string.Format(
-                "temperatura={0} °C; {1}; PWM={2}%; duty={3}/255",
+            string snapshot = Strings.Format("Snapshot",
                 lastObservedTemperature, rpmSnapshot, pwmBeforeFailSafe,
                 dutyBeforeFailSafe);
             DiagnosticLogger.Log("FAILSAFE", string.Format(
@@ -928,7 +995,7 @@ namespace AsusFanControlKimera.UI
         internal void HandleUnhandledException(Exception exception)
         {
             DiagnosticLogger.Log("ERROR", "Eccezione UI non gestita: " + exception);
-            ActivateFailSafe("Errore imprevisto: " + exception.Message, "-");
+            ActivateFailSafe(Strings.Format("UnexpectedError", exception.Message), "-");
         }
 
         private string CurrentModeName()

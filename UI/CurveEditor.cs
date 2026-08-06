@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Windows.Forms;
+using AsusFanControlKimera.Localization;
 
 namespace AsusFanControlKimera.UI
 {
@@ -74,7 +75,8 @@ namespace AsusFanControlKimera.UI
                 g.DrawLine(axisPen, plot.Left, plot.Bottom, plot.Right, plot.Bottom);
             }
 
-            g.DrawString("Temperatura °C", Font, Brushes.DimGray, plot.Left + plot.Width / 2 - 45, Height - 18);
+            g.DrawString(Strings.Get("CurveTemperatureAxis"), Font, Brushes.DimGray,
+                plot.Left + plot.Width / 2 - 45, Height - 18);
             g.DrawString("PWM %", Font, Brushes.DimGray, 4, 2);
 
             if (points.Count > 1)

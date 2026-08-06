@@ -55,6 +55,13 @@ namespace AsusFanControlKimera.Properties
             set { this["DebugEnabled"] = value; }
         }
 
+        [UserScopedSetting, DefaultSettingValue("it")]
+        public string Language
+        {
+            get { return (string)this["Language"]; }
+            set { this["Language"] = value; }
+        }
+
         private const string FanCurveDefault = "20,40-50,40-60,50-70,65-80,80-90,95-100,100";
     }
 }

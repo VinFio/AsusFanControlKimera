@@ -18,7 +18,9 @@ This project does not introduce a new hardware control engine. It combines the w
 - system tray support;
 - minimized startup and startup with Windows;
 - optional release of fan control when the application exits;
-- optional debugging through a rotating diagnostic log.
+- optional debugging through a rotating diagnostic log;
+- complete Italian and English interface, switchable at runtime from
+  **Options > Language** (`Opzioni > Lingua` in Italian).
 
 ## System Requirements
 
@@ -66,6 +68,12 @@ Keep these files together in the same directory:
 The icon is embedded in the executable; `propeller.ico` is not required at
 runtime. An Internet connection, NuGet packages, LibreHardwareMonitor, Sentry,
 Fody, and Microsoft.Extensions.DependencyInjection are not required.
+
+> **Third-party binary notice:** `AsusWinIO64.dll` is digitally signed and
+> copyrighted by ASUSTeK COMPUTER INC. It is not covered by this repository's
+> MIT license. Confirm that you have the right to redistribute the DLL before
+> including it in a public release; users with the ASUS System Control Interface
+> installed can obtain it from their local ASUS installation.
 
 ### Recommended environment
 

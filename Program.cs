@@ -5,6 +5,7 @@ using System.Security.Principal;
 using System.Threading;
 using System.Windows.Forms;
 using AsusFanControlKimera.Diagnostics;
+using AsusFanControlKimera.Localization;
 using AsusFanControlKimera.Properties;
 using AsusFanControlKimera.UI;
 
@@ -17,6 +18,7 @@ namespace AsusFanControlKimera
         [STAThread]
         private static void Main(string[] args)
         {
+            Strings.SetLanguage(Settings.Default.Language);
             if (!EnsureSystemIdentity(args))
                 return;
 
@@ -25,7 +27,7 @@ namespace AsusFanControlKimera
             {
                 if (!firstInstance)
                 {
-                    MessageBox.Show("AsusFanControlKimera è già in esecuzione.", "Kimera",
+                    MessageBox.Show(Strings.Get("AlreadyRunning"), "Kimera",
                         MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
@@ -38,7 +40,7 @@ namespace AsusFanControlKimera
                 {
                     if (mainForm != null)
                         mainForm.HandleUnhandledException(e.Exception);
-                    MessageBox.Show(e.Exception.Message, "Errore Kimera",
+                    MessageBox.Show(e.Exception.Message, Strings.Get("ErrorTitle"),
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
                 };
                 AppDomain.CurrentDomain.UnhandledException += delegate
@@ -90,7 +92,7 @@ namespace AsusFanControlKimera
                     }
                     catch (Exception ex)
                     {
-                        MessageBox.Show("Sono necessari i privilegi elevati.\n\n" + ex.Message,
+                        MessageBox.Show(Strings.Format("ElevationRequired", ex.Message),
                             "Kimera", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
                     return false;
@@ -100,12 +102,8 @@ namespace AsusFanControlKimera
             string psExec = FindPsExec();
             if (psExec == null)
             {
-                MessageBox.Show(
-                    "PsExec.exe non è stato trovato.\n\n" +
-                    "Kimera deve essere eseguito come account SYSTEM, come il run.bat " +
-                    "dell'AsusFanControl funzionante.\n\n" +
-                    "Percorso atteso:\nC:\\Program Files (x86)\\AsusFanControl\\PsExec.exe",
-                    "Kimera - PsExec mancante", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(Strings.Get("PsExecMissingText"),
+                    Strings.Get("PsExecMissingTitle"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
             }
 
@@ -125,7 +123,7 @@ namespace AsusFanControlKimera
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Impossibile avviare Kimera come SYSTEM.\n\n" + ex.Message,
+                MessageBox.Show(Strings.Format("LaunchSystemFailed", ex.Message),
                     "Kimera", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             return false;
