@@ -27,6 +27,13 @@ namespace AsusFanControlKimera.UI
         private readonly Label statusValue = new Label();
         private readonly CurveEditor curveEditor = new CurveEditor();
         private readonly TextBox curveText = new TextBox();
+        private readonly ComboBox curveProfileCombo = new ComboBox();
+        private readonly Button saveCurveProfileButton = new Button();
+        private readonly Button saveCurveProfileAsButton = new Button();
+        private readonly Button curveProfileActionsButton = new Button();
+        private readonly ContextMenuStrip curveProfileActionsMenu = new ContextMenuStrip();
+        private readonly ToolStripMenuItem renameCurveProfileItem = new ToolStripMenuItem();
+        private readonly ToolStripMenuItem deleteCurveProfileItem = new ToolStripMenuItem();
         private readonly NumericUpDown hysteresis = new NumericUpDown();
         private readonly NumericUpDown interval = new NumericUpDown();
         private readonly ToolStripMenuItem safeLimitsItem = new ToolStripMenuItem();
@@ -38,6 +45,7 @@ namespace AsusFanControlKimera.UI
         private readonly ToolStripMenuItem italianLanguageItem = new ToolStripMenuItem();
         private readonly ToolStripMenuItem englishLanguageItem = new ToolStripMenuItem();
         private readonly NotifyIcon trayIcon = new NotifyIcon();
+        private readonly Bitmap trayModeIndicator = CreateTrayModeIndicator();
         private readonly Timer refreshTimer = new Timer();
         private readonly Timer startupTimer = new Timer();
         private readonly IDictionary<Control, string> localizedControls =
@@ -46,6 +54,9 @@ namespace AsusFanControlKimera.UI
             new Dictionary<ToolStripItem, string>();
         private AsusFanController controller;
         private List<Point> curvePoints;
+        private List<CurveProfile> curveProfiles = new List<CurveProfile>();
+        private string activeCurveProfileName;
+        private bool updatingCurveProfileUi;
         private int lastCurveTemperature = int.MinValue;
         private int lastAppliedSpeed = -1;
         private bool loading = true;
@@ -56,6 +67,7 @@ namespace AsusFanControlKimera.UI
         private int consecutiveInvalidTemperatures;
         private int consecutiveZeroRpmSamples;
         private ulong lastObservedTemperature;
+        private bool hasObservedTemperature;
         private IList<int> lastObservedFanSpeeds = new List<int>();
         private FailSafeDialog failSafeDialog;
 
@@ -237,9 +249,62 @@ namespace AsusFanControlKimera.UI
 
             var curveBox = LocalizeControl(
                 new GroupBox { Dock = DockStyle.Fill }, "CurveHelp");
+            var curveArea = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                Padding = new Padding(6, 2, 6, 6)
+            };
+            curveArea.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            curveArea.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            curveArea.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            var curveProfileBar = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Padding = new Padding(2, 5, 0, 0)
+            };
+            var curveProfileLabel = LocalizeControl(new Label
+            {
+                AutoSize = true,
+                Margin = new Padding(0, 7, 7, 0)
+            }, "CurveProfile");
+            curveProfileCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+            curveProfileCombo.Width = 210;
+            curveProfileCombo.Margin = new Padding(0, 3, 8, 0);
+            curveProfileCombo.SelectedIndexChanged += CurveProfileSelectionChanged;
+            LocalizeControl(saveCurveProfileButton, "SaveProfile");
+            saveCurveProfileButton.Size = new Size(82, 28);
+            saveCurveProfileButton.Margin = new Padding(0, 2, 6, 0);
+            saveCurveProfileButton.Click += SaveCurveProfile;
+            LocalizeControl(saveCurveProfileAsButton, "SaveProfileAs");
+            saveCurveProfileAsButton.Size = new Size(108, 28);
+            saveCurveProfileAsButton.Margin = new Padding(0, 2, 6, 0);
+            saveCurveProfileAsButton.Click += SaveCurveProfileAs;
+            curveProfileActionsButton.Text = "\u2026";
+            curveProfileActionsButton.Size = new Size(38, 28);
+            curveProfileActionsButton.Margin = new Padding(0, 2, 0, 0);
+            curveProfileActionsButton.Click += ShowCurveProfileActions;
+            LocalizeItem(renameCurveProfileItem, "RenameProfile");
+            LocalizeItem(deleteCurveProfileItem, "DeleteProfile");
+            renameCurveProfileItem.Click += RenameCurveProfile;
+            deleteCurveProfileItem.Click += DeleteCurveProfile;
+            curveProfileActionsMenu.Items.Add(renameCurveProfileItem);
+            curveProfileActionsMenu.Items.Add(deleteCurveProfileItem);
+            curveProfileBar.Controls.Add(curveProfileLabel);
+            curveProfileBar.Controls.Add(curveProfileCombo);
+            curveProfileBar.Controls.Add(saveCurveProfileButton);
+            curveProfileBar.Controls.Add(saveCurveProfileAsButton);
+            curveProfileBar.Controls.Add(curveProfileActionsButton);
+
             curveEditor.Dock = DockStyle.Fill;
             curveEditor.CurveChanged += CurveEditorChanged;
-            curveBox.Controls.Add(curveEditor);
+            curveArea.Controls.Add(curveProfileBar, 0, 0);
+            curveArea.Controls.Add(curveEditor, 0, 1);
+            curveBox.Controls.Add(curveArea);
             root.Controls.Add(curveBox, 0, 1);
 
             var curveControls = new TableLayoutPanel
@@ -255,6 +320,7 @@ namespace AsusFanControlKimera.UI
             curveControls.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             curveText.Dock = DockStyle.Fill;
             curveText.Font = new Font("Consolas", 9F);
+            curveText.TextChanged += CurveTextChanged;
             var applyCurve = LocalizeControl(
                 new Button { Dock = DockStyle.Fill }, "Apply");
             var resetCurve = LocalizeControl(
@@ -344,6 +410,11 @@ namespace AsusFanControlKimera.UI
             traySystem.Click += delegate { systemMode.Checked = true; };
             var trayCurve = LocalizeItem(new ToolStripMenuItem(), "TrayTemperatureCurve");
             trayCurve.Click += delegate { curveMode.Checked = true; };
+            trayMenu.Opening += delegate
+            {
+                traySystem.Image = systemMode.Checked ? trayModeIndicator : null;
+                trayCurve.Image = curveMode.Checked ? trayModeIndicator : null;
+            };
             trayMenu.Items.Add(trayOpen);
             trayMenu.Items.Add(traySystem);
             trayMenu.Items.Add(trayCurve);
@@ -398,6 +469,15 @@ namespace AsusFanControlKimera.UI
             catch { curvePoints = FanCurve.Parse(FanCurve.DefaultText); }
             curveEditor.Points = curvePoints;
             curveText.Text = FanCurve.Serialize(curvePoints);
+            curveProfiles = CurveProfileStore.Deserialize(Settings.Default.CurveProfiles).ToList();
+            CurveProfile activeProfile = FindCurveProfile(Settings.Default.ActiveCurveProfile);
+            activeCurveProfileName = activeProfile == null ? null : activeProfile.Name;
+            if (Settings.Default.ActiveCurveProfile != (activeCurveProfileName ?? string.Empty))
+            {
+                Settings.Default.ActiveCurveProfile = activeCurveProfileName ?? string.Empty;
+                Settings.Default.Save();
+            }
+            RefreshCurveProfileUi();
 
             if (Settings.Default.Mode == "Curve") curveMode.Checked = true;
             else if (Settings.Default.Mode == "System") systemMode.Checked = true;
@@ -524,9 +604,7 @@ namespace AsusFanControlKimera.UI
                 statusValue.ForeColor = Color.DimGray;
                 statusValue.Text = Strings.Format("CommandSent",
                     status, controller.LastFanCount, controller.LastDuty);
-                trayIcon.Text = TruncateTrayText(speed == 0
-                    ? Strings.Get("TraySystem")
-                    : string.Format("Kimera - {0}% PWM", speed));
+                UpdateTrayText();
             }
             catch (Exception ex)
             {
@@ -560,11 +638,13 @@ namespace AsusFanControlKimera.UI
                 ulong rawTemperature = snapshot.Temperature;
                 IList<int> speeds = snapshot.FanSpeeds;
                 lastObservedTemperature = rawTemperature;
+                hasObservedTemperature = true;
                 lastObservedFanSpeeds = speeds.ToList();
                 consecutiveReadFailures = 0;
                 temperatureValue.Text = rawTemperature + " °C";
                 rpmValue.Text = string.Join(" / ", speeds.Select((rpm, i) =>
                     string.Format("F{0}: {1}", i + 1, rpm))) + " RPM";
+                UpdateTrayText();
                 DiagnosticLogger.LogSnapshot(CurrentModeName(), rawTemperature, speeds,
                     lastAppliedSpeed, controller.LastDuty);
 
@@ -638,18 +718,33 @@ namespace AsusFanControlKimera.UI
 
         private void ApplyCurveText(object sender, EventArgs e)
         {
+            CommitCurveText();
+        }
+
+        private bool CommitCurveText()
+        {
+            if (CurveTextMatchesCurrent())
+                return true;
             try
             {
                 curvePoints = FanCurve.Parse(curveText.Text);
                 curveEditor.Points = curvePoints;
                 curveText.Text = FanCurve.Serialize(curvePoints);
                 SaveCurve();
+                return true;
             }
             catch (Exception ex)
             {
                 MessageBox.Show(ex.Message, Strings.Get("InvalidCurveTitle"),
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
             }
+        }
+
+        private void CurveTextChanged(object sender, EventArgs e)
+        {
+            if (!loading)
+                RefreshCurveProfileUi();
         }
 
         private void ResetCurve(object sender, EventArgs e)
@@ -664,9 +759,365 @@ namespace AsusFanControlKimera.UI
         {
             Settings.Default.Curve = FanCurve.Serialize(curvePoints);
             Settings.Default.Save();
+            RefreshCurveProfileUi();
             lastCurveTemperature = int.MinValue;
             if (curveMode.Checked)
                 RefreshHardware(true);
+        }
+
+        private void CurveProfileSelectionChanged(object sender, EventArgs e)
+        {
+            if (updatingCurveProfileUi)
+                return;
+
+            var option = curveProfileCombo.SelectedItem as CurveProfileOption;
+            if (option == null || string.IsNullOrEmpty(option.ProfileName) ||
+                string.Equals(option.ProfileName, activeCurveProfileName,
+                    StringComparison.OrdinalIgnoreCase))
+                return;
+
+            CurveProfile target = FindCurveProfile(option.ProfileName);
+            if (target == null)
+            {
+                RefreshCurveProfileUi();
+                return;
+            }
+
+            if (FindCurveProfile(activeCurveProfileName) == null &&
+                CurveProfileMatchesCurrent(target))
+            {
+                activeCurveProfileName = target.Name;
+                PersistCurveProfiles();
+                RefreshCurveProfileUi();
+                return;
+            }
+
+            if (!ConfirmLeavingCurrentCurve())
+            {
+                RefreshCurveProfileUi();
+                return;
+            }
+
+            ApplyCurveProfile(target);
+        }
+
+        private void SaveCurveProfile(object sender, EventArgs e)
+        {
+            SaveActiveCurveProfile(true);
+        }
+
+        private void SaveCurveProfileAs(object sender, EventArgs e)
+        {
+            SaveCurrentCurveAsProfile();
+        }
+
+        private bool SaveActiveCurveProfile(bool reportStatus)
+        {
+            CurveProfile profile = FindCurveProfile(activeCurveProfileName);
+            if (profile == null || curvePoints == null || !CommitCurveText())
+                return false;
+
+            CurveProfile current = CaptureCurrentCurveProfile(profile.Name);
+            profile.Curve = current.Curve;
+            profile.Hysteresis = current.Hysteresis;
+            profile.RefreshInterval = current.RefreshInterval;
+            PersistCurveProfiles();
+            RefreshCurveProfileUi();
+            DiagnosticLogger.Log("PROFILE", "Profilo curva aggiornato: " + profile.Name);
+            if (reportStatus)
+            {
+                statusValue.ForeColor = Color.DimGray;
+                statusValue.Text = Strings.Format("ProfileSavedStatus", profile.Name);
+            }
+            return true;
+        }
+
+        private bool SaveCurrentCurveAsProfile()
+        {
+            if (curvePoints == null || !CommitCurveText())
+                return false;
+
+            string name;
+            if (!TryGetCurveProfileName("SaveProfileAsTitle", "ProfileNamePrompt",
+                string.Empty, null, out name))
+                return false;
+
+            curveProfiles.Add(CaptureCurrentCurveProfile(name));
+            activeCurveProfileName = name;
+            PersistCurveProfiles();
+            RefreshCurveProfileUi();
+            DiagnosticLogger.Log("PROFILE", "Profilo curva creato: " + name);
+            statusValue.ForeColor = Color.DimGray;
+            statusValue.Text = Strings.Format("ProfileSavedStatus", name);
+            return true;
+        }
+
+        private void ShowCurveProfileActions(object sender, EventArgs e)
+        {
+            bool hasProfile = FindCurveProfile(activeCurveProfileName) != null;
+            renameCurveProfileItem.Enabled = hasProfile;
+            deleteCurveProfileItem.Enabled = hasProfile;
+            if (hasProfile)
+                curveProfileActionsMenu.Show(curveProfileActionsButton,
+                    new Point(0, curveProfileActionsButton.Height));
+        }
+
+        private void RenameCurveProfile(object sender, EventArgs e)
+        {
+            CurveProfile profile = FindCurveProfile(activeCurveProfileName);
+            if (profile == null)
+                return;
+
+            string name;
+            if (!TryGetCurveProfileName("RenameProfileTitle", "ProfileNamePrompt",
+                profile.Name, profile.Name, out name) ||
+                string.Equals(name, profile.Name, StringComparison.Ordinal))
+                return;
+
+            string oldName = profile.Name;
+            profile.Name = name;
+            activeCurveProfileName = name;
+            PersistCurveProfiles();
+            RefreshCurveProfileUi();
+            DiagnosticLogger.Log("PROFILE", string.Format(
+                "Profilo curva rinominato: {0} -> {1}", oldName, name));
+        }
+
+        private void DeleteCurveProfile(object sender, EventArgs e)
+        {
+            CurveProfile profile = FindCurveProfile(activeCurveProfileName);
+            if (profile == null || MessageBox.Show(
+                Strings.Format("DeleteProfilePrompt", profile.Name),
+                Strings.Get("DeleteProfileTitle"), MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+                return;
+
+            curveProfiles.Remove(profile);
+            activeCurveProfileName = null;
+            PersistCurveProfiles();
+            RefreshCurveProfileUi();
+            DiagnosticLogger.Log("PROFILE", "Profilo curva eliminato: " + profile.Name);
+            statusValue.ForeColor = Color.DimGray;
+            statusValue.Text = Strings.Format("ProfileDeletedStatus", profile.Name);
+        }
+
+        private bool ConfirmLeavingCurrentCurve()
+        {
+            CurveProfile activeProfile = FindCurveProfile(activeCurveProfileName);
+            if (activeProfile != null && CurveProfileMatchesCurrent(activeProfile))
+                return true;
+
+            string message = activeProfile == null
+                ? Strings.Get("UnsavedCurrentCurvePrompt")
+                : Strings.Format("UnsavedProfilePrompt", activeProfile.Name);
+            DialogResult answer = MessageBox.Show(message,
+                Strings.Get("UnsavedProfileTitle"), MessageBoxButtons.YesNoCancel,
+                MessageBoxIcon.Question);
+            if (answer == DialogResult.Cancel)
+                return false;
+            if (answer == DialogResult.No)
+                return true;
+            return activeProfile == null
+                ? SaveCurrentCurveAsProfile()
+                : SaveActiveCurveProfile(false);
+        }
+
+        private void ApplyCurveProfile(CurveProfile profile)
+        {
+            bool previousLoading = loading;
+            loading = true;
+            try
+            {
+                curvePoints = FanCurve.Parse(profile.Curve);
+                curveEditor.Points = curvePoints;
+                curveText.Text = FanCurve.Serialize(curvePoints);
+                hysteresis.Value = Clamp(profile.Hysteresis, 0, 15);
+                interval.Value = Clamp(profile.RefreshInterval, 500, 10000);
+                activeCurveProfileName = profile.Name;
+                Settings.Default.Curve = curveText.Text;
+                Settings.Default.Hysteresis = (int)hysteresis.Value;
+                Settings.Default.RefreshInterval = (int)interval.Value;
+                Settings.Default.ActiveCurveProfile = activeCurveProfileName;
+                Settings.Default.Save();
+                refreshTimer.Interval = (int)interval.Value;
+            }
+            finally
+            {
+                loading = previousLoading;
+            }
+
+            lastCurveTemperature = int.MinValue;
+            RefreshCurveProfileUi();
+            DiagnosticLogger.Log("PROFILE", "Profilo curva caricato: " + profile.Name);
+            if (curveMode.Checked)
+                RefreshHardware(true);
+        }
+
+        private CurveProfile CaptureCurrentCurveProfile(string name)
+        {
+            return new CurveProfile
+            {
+                Name = name,
+                Curve = FanCurve.Serialize(curvePoints),
+                Hysteresis = (int)hysteresis.Value,
+                RefreshInterval = (int)interval.Value
+            };
+        }
+
+        private CurveProfile FindCurveProfile(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return null;
+            return curveProfiles.FirstOrDefault(profile => string.Equals(
+                profile.Name, name, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private bool CurveProfileMatchesCurrent(CurveProfile profile)
+        {
+            return profile != null && curvePoints != null &&
+                CurveTextMatchesCurrent() &&
+                string.Equals(profile.Curve, FanCurve.Serialize(curvePoints),
+                    StringComparison.Ordinal) &&
+                profile.Hysteresis == (int)hysteresis.Value &&
+                profile.RefreshInterval == (int)interval.Value;
+        }
+
+        private bool CurveTextMatchesCurrent()
+        {
+            return curvePoints != null && string.Equals(curveText.Text,
+                FanCurve.Serialize(curvePoints), StringComparison.Ordinal);
+        }
+
+        private void PersistCurveProfiles()
+        {
+            Settings.Default.CurveProfiles = CurveProfileStore.Serialize(curveProfiles);
+            Settings.Default.ActiveCurveProfile = activeCurveProfileName ?? string.Empty;
+            Settings.Default.Save();
+        }
+
+        private void RefreshCurveProfileUi()
+        {
+            if (curveProfileCombo.IsDisposed)
+                return;
+
+            bool previousUpdating = updatingCurveProfileUi;
+            updatingCurveProfileUi = true;
+            curveProfileCombo.BeginUpdate();
+            try
+            {
+                curveProfileCombo.Items.Clear();
+                CurveProfile activeProfile = FindCurveProfile(activeCurveProfileName);
+                int selectedIndex = -1;
+                if (activeProfile == null)
+                {
+                    curveProfileCombo.Items.Add(new CurveProfileOption(
+                        null, Strings.Get("CurrentCurve")));
+                    selectedIndex = 0;
+                }
+
+                foreach (CurveProfile profile in curveProfiles)
+                {
+                    bool active = activeProfile != null && string.Equals(
+                        activeProfile.Name, profile.Name, StringComparison.OrdinalIgnoreCase);
+                    string label = profile.Name +
+                        (active && !CurveProfileMatchesCurrent(profile) ? " *" : string.Empty);
+                    int index = curveProfileCombo.Items.Add(
+                        new CurveProfileOption(profile.Name, label));
+                    if (active)
+                        selectedIndex = index;
+                }
+                curveProfileCombo.SelectedIndex = selectedIndex;
+                bool hasActiveProfile = activeProfile != null;
+                saveCurveProfileButton.Enabled = hasActiveProfile;
+                curveProfileActionsButton.Enabled = hasActiveProfile;
+            }
+            finally
+            {
+                curveProfileCombo.EndUpdate();
+                updatingCurveProfileUi = previousUpdating;
+            }
+        }
+
+        private bool TryGetCurveProfileName(string titleKey, string promptKey,
+            string initialName, string ignoredExistingName, out string name)
+        {
+            name = null;
+            while (true)
+            {
+                string candidate;
+                if (!ShowCurveProfileNameDialog(Strings.Get(titleKey),
+                    Strings.Get(promptKey), initialName, out candidate))
+                    return false;
+
+                candidate = candidate.Trim();
+                if (!CurveProfileStore.IsValidName(candidate))
+                {
+                    MessageBox.Show(Strings.Format("InvalidProfileName",
+                        CurveProfileStore.MaximumNameLength), Strings.Get("InvalidProfileTitle"),
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    initialName = candidate;
+                    continue;
+                }
+
+                CurveProfile existing = FindCurveProfile(candidate);
+                if (existing != null && !string.Equals(existing.Name,
+                    ignoredExistingName, StringComparison.OrdinalIgnoreCase))
+                {
+                    MessageBox.Show(Strings.Format("DuplicateProfileName", candidate),
+                        Strings.Get("InvalidProfileTitle"), MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    initialName = candidate;
+                    continue;
+                }
+
+                name = candidate;
+                return true;
+            }
+        }
+
+        private bool ShowCurveProfileNameDialog(string title, string prompt,
+            string initialName, out string name)
+        {
+            using (var dialog = new Form())
+            using (var label = new Label())
+            using (var textBox = new TextBox())
+            using (var okButton = new Button())
+            using (var cancelButton = new Button())
+            {
+                dialog.Text = title;
+                dialog.Font = Font;
+                dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dialog.StartPosition = FormStartPosition.CenterParent;
+                dialog.ClientSize = new Size(430, 130);
+                dialog.MaximizeBox = false;
+                dialog.MinimizeBox = false;
+                dialog.ShowInTaskbar = false;
+                label.Text = prompt;
+                label.SetBounds(12, 12, 406, 24);
+                textBox.Text = initialName ?? string.Empty;
+                textBox.MaxLength = CurveProfileStore.MaximumNameLength;
+                textBox.SetBounds(12, 40, 406, 24);
+                okButton.Text = Strings.Get("OK");
+                okButton.DialogResult = DialogResult.OK;
+                okButton.SetBounds(246, 88, 80, 28);
+                cancelButton.Text = Strings.Get("Cancel");
+                cancelButton.DialogResult = DialogResult.Cancel;
+                cancelButton.SetBounds(338, 88, 80, 28);
+                dialog.Controls.AddRange(new Control[]
+                {
+                    label, textBox, okButton, cancelButton
+                });
+                dialog.AcceptButton = okButton;
+                dialog.CancelButton = cancelButton;
+                dialog.Shown += delegate
+                {
+                    textBox.Focus();
+                    textBox.SelectAll();
+                };
+                bool accepted = dialog.ShowDialog(this) == DialogResult.OK;
+                name = accepted ? textBox.Text : null;
+                return accepted;
+            }
         }
 
         private void SettingsMenuChanged(object sender, EventArgs e)
@@ -717,6 +1168,7 @@ namespace AsusFanControlKimera.UI
             Settings.Default.RefreshInterval = (int)interval.Value;
             Settings.Default.Save();
             refreshTimer.Interval = (int)interval.Value;
+            RefreshCurveProfileUi();
             lastCurveTemperature = int.MinValue;
         }
 
@@ -840,6 +1292,8 @@ namespace AsusFanControlKimera.UI
                 controller.Dispose();
             trayIcon.Visible = false;
             trayIcon.Dispose();
+            trayModeIndicator.Dispose();
+            curveProfileActionsMenu.Dispose();
         }
 
         private void ResetSettings(object sender, EventArgs e)
@@ -885,6 +1339,8 @@ namespace AsusFanControlKimera.UI
             italianLanguageItem.Checked = Strings.CurrentLanguage == Strings.Italian;
             englishLanguageItem.Checked = Strings.CurrentLanguage == Strings.English;
             curveEditor.Invalidate();
+            if (curvePoints != null)
+                RefreshCurveProfileUi();
             PerformLayout();
         }
 
@@ -900,18 +1356,40 @@ namespace AsusFanControlKimera.UI
             statusValue.ForeColor = Color.DimGray;
             statusValue.Text = Strings.Get("LanguageChanged");
             if (!failSafeActive)
-            {
-                trayIcon.Text = TruncateTrayText(lastAppliedSpeed == 0
-                    ? Strings.Get("TraySystem")
-                    : lastAppliedSpeed > 0
-                        ? string.Format("Kimera - {0}% PWM", lastAppliedSpeed)
-                        : "Asus Fan Control Kimera");
-            }
+                UpdateTrayText();
         }
 
         private static int Clamp(int value, int minimum, int maximum)
         {
             return Math.Max(minimum, Math.Min(maximum, value));
+        }
+
+        private static Bitmap CreateTrayModeIndicator()
+        {
+            var indicator = new Bitmap(16, 16);
+            using (Graphics graphics = Graphics.FromImage(indicator))
+            {
+                graphics.Clear(Color.Transparent);
+                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                graphics.FillEllipse(Brushes.Black, 4, 4, 8, 8);
+            }
+            return indicator;
+        }
+
+        private void UpdateTrayText()
+        {
+            if (failSafeActive)
+                return;
+
+            string text = lastAppliedSpeed == 0
+                ? Strings.Get("TraySystem")
+                : lastAppliedSpeed > 0
+                    ? string.Format("Kimera - {0}% PWM", lastAppliedSpeed)
+                    : "Asus Fan Control Kimera";
+            if (hasObservedTemperature)
+                text += string.Format(" - {0} °C", lastObservedTemperature);
+
+            trayIcon.Text = TruncateTrayText(text);
         }
 
         private static string TruncateTrayText(string text)
@@ -1015,6 +1493,23 @@ namespace AsusFanControlKimera.UI
                     controller.TryEmergencyRelease();
             }
             catch { }
+        }
+
+        private sealed class CurveProfileOption
+        {
+            internal readonly string ProfileName;
+            private readonly string displayText;
+
+            internal CurveProfileOption(string profileName, string displayText)
+            {
+                ProfileName = profileName;
+                this.displayText = displayText;
+            }
+
+            public override string ToString()
+            {
+                return displayText;
+            }
         }
 
         private sealed class HardwareSnapshot

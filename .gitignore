@@ -5,4 +5,5 @@ obj/
 *.suo
 *.lnk
 *.zip
+*.sha256
 _backups/

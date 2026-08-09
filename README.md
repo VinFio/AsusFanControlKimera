@@ -11,6 +11,7 @@ This project does not introduce a new hardware control engine. It combines the w
 
 - ASUS System, Manual, and Fan Curve modes;
 - editable graphical fan curve;
+- named fan-curve profiles with save, overwrite, rename, delete, and quick switching;
 - textual fan curve format using `temperature,percentage`;
 - configurable hysteresis and update interval;
 - CPU temperature and RPM readings for all detected fans;
@@ -21,6 +22,22 @@ This project does not introduce a new hardware control engine. It combines the w
 - optional debugging through a rotating diagnostic log;
 - complete Italian and English interface, switchable at runtime from
   **Options > Language** (`Opzioni > Lingua` in Italian).
+
+## Fan Curve Profiles
+
+The profile bar above the graph stores complete Fan Curve configurations. Each
+profile contains the curve points, hysteresis, and update interval. Safety
+limits and the currently selected control mode remain global settings and are
+not changed when a profile is loaded.
+
+Changes continue to affect the current working curve immediately. A named
+profile is overwritten only with **Save**; **Save as** creates a separate copy.
+An asterisk next to the active profile indicates changes that have not yet been
+saved to that profile. Kimera asks whether to save, discard, or cancel before
+switching away from such changes.
+
+Existing installations keep their current curve after upgrading. It initially
+appears as **Current curve** and can be stored under a name with **Save as**.
 
 ## System Requirements
 
@@ -65,6 +82,10 @@ Keep these files together in the same directory:
 - `AsusFanControlKimera.exe.config`
 - `AsusWinIO64.dll`
 
+Release archives also include `README.md`, `LICENSE`, and
+`THIRD_PARTY_NOTICES.md`; they are documentation files and are not required at
+runtime.
+
 The icon is embedded in the executable; `propeller.ico` is not required at
 runtime. An Internet connection, NuGet packages, LibreHardwareMonitor, Sentry,
 Fody, and Microsoft.Extensions.DependencyInjection are not required.
@@ -98,6 +119,9 @@ Download the latest `AsusFanControlKimera-vX.X.X.zip` archive, extract it, and k
 - `AsusFanControlKimera.exe`
 - `AsusFanControlKimera.exe.config`
 - `AsusWinIO64.dll`
+
+Keep the included `README.md`, `LICENSE`, and `THIRD_PARTY_NOTICES.md` files
+with redistributed copies of the archive.
 
 Run `AsusFanControlKimera.exe`.
 
@@ -200,10 +224,12 @@ AsusFanControlKimera combines code and functionality from two existing projects:
 The original projects remain the work of their respective authors.
 
 Users and contributors should refer to the original repositories and their license files for the applicable attribution, redistribution, and licensing requirements.
+The packaged notices are collected in `THIRD_PARTY_NOTICES.md`.
 
 ## Compatibility and Disclaimer
 
-AsusFanControlKimera has been developed and tested primarily on an **ASUS Vivobook V16 V3607VU**.
+AsusFanControlKimera has been developed and tested on a limited selection of
+**ASUS Vivobook V16-series** hardware.
 
 Compatibility with other ASUS laptop models is not guaranteed. Hardware interfaces, fan controllers, firmware behavior, sensor mappings, and supported commands may differ between models.
 

@@ -34,6 +34,20 @@ namespace AsusFanControlKimera.Properties
         [UserScopedSetting, DefaultSettingValue(FanCurveDefault)]
         public string Curve { get { return (string)this["Curve"]; } set { this["Curve"] = value; } }
 
+        [UserScopedSetting, DefaultSettingValue("")]
+        public string CurveProfiles
+        {
+            get { return (string)this["CurveProfiles"]; }
+            set { this["CurveProfiles"] = value; }
+        }
+
+        [UserScopedSetting, DefaultSettingValue("")]
+        public string ActiveCurveProfile
+        {
+            get { return (string)this["ActiveCurveProfile"]; }
+            set { this["ActiveCurveProfile"] = value; }
+        }
+
         [UserScopedSetting, DefaultSettingValue("True")]
         public bool UpgradeRequired
         {
