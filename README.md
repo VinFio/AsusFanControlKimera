@@ -20,7 +20,7 @@ This project does not introduce a new hardware control engine. It combines the w
 - minimized startup and startup with Windows;
 - optional release of fan control when the application exits;
 - optional debugging through a rotating diagnostic log;
-- complete Italian and English interface, switchable at runtime from
+- complete Italian, English, and Russian interface, switchable at runtime from
   **Options > Language** (`Opzioni > Lingua` in Italian).
 
 ## Fan Curve Profiles

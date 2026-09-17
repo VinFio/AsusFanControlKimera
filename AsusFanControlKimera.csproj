@@ -46,6 +46,7 @@
     <Compile Include="Hardware\AsusWinIO64.cs" />
     <Compile Include="Hardware\AsusFanController.cs" />
     <Compile Include="Localization\Strings.cs" />
+    <Compile Include="Localization\RussianStrings.cs" />
     <Compile Include="Model\CurveProfile.cs" />
     <Compile Include="Model\FanCurve.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

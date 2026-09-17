@@ -5,10 +5,11 @@ using System.Threading;
 
 namespace AsusFanControlKimera.Localization
 {
-    internal static class Strings
+    internal static partial class Strings
     {
         internal const string Italian = "it";
         internal const string English = "en";
+        internal const string Russian = "ru";
 
         private static readonly IDictionary<string, string> ItalianStrings =
             new Dictionary<string, string>(StringComparer.Ordinal)
@@ -30,6 +31,7 @@ namespace AsusFanControlKimera.Localization
                 { "Language", "Lingua" },
                 { "Italian", "Italiano" },
                 { "English", "Inglese" },
+                { "Russian", "Russo" },
                 { "Help", "Aiuto" },
                 { "About", "Informazioni" },
                 { "ControlMode", "Modalità di controllo" },
@@ -147,6 +149,7 @@ namespace AsusFanControlKimera.Localization
                 { "Language", "Language" },
                 { "Italian", "Italian" },
                 { "English", "English" },
+                { "Russian", "Russian" },
                 { "Help", "Help" },
                 { "About", "About" },
                 { "ControlMode", "Control mode" },
@@ -252,7 +255,9 @@ namespace AsusFanControlKimera.Localization
         {
             currentLanguage = string.Equals(language, English, StringComparison.OrdinalIgnoreCase)
                 ? English
-                : Italian;
+                : string.Equals(language, Russian, StringComparison.OrdinalIgnoreCase)
+                    ? Russian
+                    : Italian;
             CultureInfo uiCulture = CultureInfo.GetCultureInfo(currentLanguage);
             Thread.CurrentThread.CurrentUICulture = uiCulture;
             CultureInfo.DefaultThreadCurrentUICulture = uiCulture;
@@ -263,7 +268,7 @@ namespace AsusFanControlKimera.Localization
             string value;
             IDictionary<string, string> selected = currentLanguage == English
                 ? EnglishStrings
-                : ItalianStrings;
+                : currentLanguage == Russian ? RussianStrings : ItalianStrings;
             if (selected.TryGetValue(key, out value))
                 return value;
             if (ItalianStrings.TryGetValue(key, out value))

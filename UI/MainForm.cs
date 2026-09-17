@@ -44,6 +44,7 @@ namespace AsusFanControlKimera.UI
         private readonly ToolStripMenuItem debugItem = new ToolStripMenuItem();
         private readonly ToolStripMenuItem italianLanguageItem = new ToolStripMenuItem();
         private readonly ToolStripMenuItem englishLanguageItem = new ToolStripMenuItem();
+        private readonly ToolStripMenuItem russianLanguageItem = new ToolStripMenuItem();
         private readonly NotifyIcon trayIcon = new NotifyIcon();
         private readonly Bitmap trayModeIndicator = CreateTrayModeIndicator();
         private readonly Timer refreshTimer = new Timer();
@@ -114,10 +115,12 @@ namespace AsusFanControlKimera.UI
             var language = LocalizeItem(new ToolStripMenuItem(), "Language");
             LocalizeItem(italianLanguageItem, "Italian");
             LocalizeItem(englishLanguageItem, "English");
+            LocalizeItem(russianLanguageItem, "Russian");
             italianLanguageItem.Click += delegate { ChangeLanguage(Strings.Italian); };
             englishLanguageItem.Click += delegate { ChangeLanguage(Strings.English); };
+            russianLanguageItem.Click += delegate { ChangeLanguage(Strings.Russian); };
             language.DropDownItems.AddRange(new ToolStripItem[] {
-                italianLanguageItem, englishLanguageItem
+                italianLanguageItem, englishLanguageItem, russianLanguageItem
             });
             options.DropDownItems.AddRange(new ToolStripItem[] {
                 safeLimitsItem, releaseOnExitItem, minimizeToTrayItem,
@@ -281,7 +284,7 @@ namespace AsusFanControlKimera.UI
             saveCurveProfileButton.Margin = new Padding(0, 2, 6, 0);
             saveCurveProfileButton.Click += SaveCurveProfile;
             LocalizeControl(saveCurveProfileAsButton, "SaveProfileAs");
-            saveCurveProfileAsButton.Size = new Size(108, 28);
+            saveCurveProfileAsButton.Size = new Size(124, 28);
             saveCurveProfileAsButton.Margin = new Padding(0, 2, 6, 0);
             saveCurveProfileAsButton.Click += SaveCurveProfileAs;
             curveProfileActionsButton.Text = "\u2026";
@@ -335,7 +338,7 @@ namespace AsusFanControlKimera.UI
             applyCurve.Dock = DockStyle.None;
             applyCurve.Size = new Size(84, 34);
             resetCurve.Dock = DockStyle.None;
-            resetCurve.Size = new Size(96, 34);
+            resetCurve.Size = new Size(120, 34);
             curveButtons.Controls.Add(applyCurve);
             curveButtons.Controls.Add(resetCurve);
             applyCurve.Click += ApplyCurveText;
@@ -1338,6 +1341,7 @@ namespace AsusFanControlKimera.UI
 
             italianLanguageItem.Checked = Strings.CurrentLanguage == Strings.Italian;
             englishLanguageItem.Checked = Strings.CurrentLanguage == Strings.English;
+            russianLanguageItem.Checked = Strings.CurrentLanguage == Strings.Russian;
             curveEditor.Invalidate();
             if (curvePoints != null)
                 RefreshCurveProfileUi();
