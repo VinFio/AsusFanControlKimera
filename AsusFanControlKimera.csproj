@@ -51,8 +51,10 @@
     <Compile Include="Model\FanCurve.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Properties\Settings.cs" />
+    <Compile Include="Security\FileSystemTrust.cs" />
     <Compile Include="UI\CurveEditor.cs" />
     <Compile Include="UI\FailSafeDialog.cs" />
+    <Compile Include="UI\LogViewerDialog.cs" />
     <Compile Include="UI\MainForm.cs" />
   </ItemGroup>
   <ItemGroup>

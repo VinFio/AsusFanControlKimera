@@ -64,12 +64,22 @@ The current hardware library returns valid data only while Kimera runs under
 the `SYSTEM` account. Kimera therefore requires:
 
 - permission to display and approve a UAC elevation prompt;
-- Microsoft Sysinternals `PsExec.exe`, either next to Kimera or at
-  `C:\Program Files (x86)\AsusFanControl\PsExec.exe`.
+- Microsoft Sysinternals `PsExec.exe`, preferably at
+  `C:\Program Files (x86)\AsusFanControl\PsExec.exe` (searched first) or next
+  to Kimera.
 
 PsExec is not distributed with Kimera. The application first elevates as
 administrator and then uses PsExec with `-i -s` to enter the interactive SYSTEM
-session. **Start with Windows** still requires UAC confirmation at login.
+session, reproducing the `run.bat` file of the working AsusFanControl
+application.
+
+Before relaunching as `SYSTEM`, Kimera preserves the SID of the interactive
+user, so **Start with Windows** writes its configuration to the actual user's
+profile. A UAC confirmation is still required at login because PsExec requires
+elevation.
+
+A global mutex prevents multiple Windows sessions from controlling the same
+hardware at the same time.
 
 Official PsExec download:
 [Microsoft Sysinternals PsExec](https://learn.microsoft.com/sysinternals/downloads/psexec)
@@ -114,7 +124,10 @@ by Kimera normally has permission to create and update this location.
 A precompiled version is available from the repository's
 [Releases](https://github.com/VinFio/AsusFanControlKimera/releases) section.
 
-Download the latest `AsusFanControlKimera-vX.X.X.zip` archive, extract it, and keep the following files in the same folder:
+Download the latest `AsusFanControlKimera-vX.X.X.zip` archive, extract it to a
+protected folder such as `C:\Program Files\AsusFanControlKimera` (see
+[Security Notes](#security-notes)), and keep the following files in the same
+folder:
 
 - `AsusFanControlKimera.exe`
 - `AsusFanControlKimera.exe.config`
@@ -123,17 +136,8 @@ Download the latest `AsusFanControlKimera-vX.X.X.zip` archive, extract it, and k
 Keep the included `README.md`, `LICENSE`, and `THIRD_PARTY_NOTICES.md` files
 with redistributed copies of the archive.
 
-Run `AsusFanControlKimera.exe`.
-
-The .NET Framework 4.7.2 runtime is required.
-
-On the system used for development and testing, the ASUS DLL returns valid hardware data only when the application runs under the `SYSTEM` account.
-
-Kimera first requests administrator privileges and then relaunches itself through the existing `PsExec.exe` installation located at:
-
-`C:\Program Files (x86)\AsusFanControl`
-
-PsExec is not included in the release package.
+Run `AsusFanControlKimera.exe`. The runtime, PsExec, and privilege requirements
+are described in [System Requirements](#system-requirements).
 
 ## Building from Source
 
@@ -149,21 +153,10 @@ After compilation, the output files are located in:
 
 `AsusWinIO64.dll` must be placed next to the executable.
 
-On the system used for development and testing, the ASUS DLL returns valid hardware data only when the application runs under the `SYSTEM` account.
-
-Kimera first requests administrator privileges and then relaunches itself through the existing `PsExec.exe` installation located at:
-
-`C:\Program Files (x86)\AsusFanControl`
-
-This reproduces the behavior of the `run.bat` file used by the working AsusFanControl application.
-
-PsExec is not included in this project.
-
-Before relaunching as `SYSTEM`, Kimera preserves the SID of the interactive user. The **Start with Windows** option therefore writes its configuration to the actual user's profile.
-
-A UAC confirmation is still required at login because PsExec requires elevation.
-
-A global mutex prevents multiple Windows sessions from controlling the same hardware at the same time.
+`bin\x64\Release` is inside your user profile and can be modified without
+administrator rights, so Kimera shows the unprotected-folder warning when it is
+started from there. For daily use, copy the output files to a protected folder
+(see [Security Notes](#security-notes)).
 
 ## Safety
 
@@ -171,11 +164,13 @@ When **Safe Limits** is enabled, Manual and Fan Curve modes restrict fan values 
 
 The **ASUS System** mode uses the special value `0` to disable test mode and return fan control to the firmware.
 
-Kimera automatically switches back to ASUS System mode when it detects any of the following conditions:
+While Manual or Fan Curve mode is active, Kimera automatically switches back to ASUS System mode when it detects any of the following conditions:
 
 - two consecutive temperature readings outside the plausible range of 10–115 °C;
 - three consecutive hardware reading errors;
-- a fan reporting 0 RPM for three consecutive readings while the requested PWM value is at least 40%.
+- a fan reporting 0 RPM for three consecutive readings while the requested PWM value is at least 40%. Readings taken during the first 5 seconds after a speed change are ignored, so stopped fans have time to spin up.
+
+In ASUS System mode the firmware is already in control, so these conditions are reported in the status bar without opening the fail-safe window.
 
 If an error occurs while sending a command to multiple fans, the controller also attempts to disable test mode on every previously detected fan.
 
@@ -184,6 +179,33 @@ Disabling Safe Limits requires explicit confirmation.
 Disabling fan-control release on exit also requires confirmation because the last applied PWM value may remain active after the application is closed.
 
 These protections cover errors that can be handled by the application. A forced process termination, a lock-up inside the native DLL, or a sudden loss of power cannot be handled reliably by an application running in the same process.
+
+## Security Notes
+
+Kimera runs under the `SYSTEM` account, the most privileged account in Windows.
+Every file it executes or loads therefore runs with the same privileges.
+
+- **Install Kimera in a protected folder**, such as
+  `C:\Program Files\AsusFanControlKimera`, where only administrators can write.
+  If `AsusFanControlKimera.exe`, `AsusFanControlKimera.exe.config`,
+  `AsusWinIO64.dll`, or PsExec are in a folder that standard accounts can
+  modify (for example Downloads, Desktop, or another folder inside the user
+  profile), any program running without privileges could replace them and
+  obtain `SYSTEM` access.
+- At startup Kimera checks these paths. If one of them can be modified by a
+  non-administrator account, a warning is displayed. Kimera starts only after
+  confirmation, and the choice is remembered for that folder, so **Start with
+  Windows** keeps working without further prompts.
+- PsExec is searched first in `C:\Program Files (x86)\AsusFanControl` and only
+  then next to the executable.
+- The diagnostic log folder is created, or corrected if it already exists, so
+  that only `SYSTEM` and administrators can write to it, while standard users
+  can still read the log. Symbolic links, junctions, and hard links found in
+  place of the folder or log file are removed before writing.
+- The **Open log** button in the fail-safe window shows the log inside Kimera
+  instead of launching Notepad, because an external editor would also run as
+  `SYSTEM` and its Open/Save dialogs could be used to start other programs with
+  the same privileges.
 
 ## Diagnostic Log
 

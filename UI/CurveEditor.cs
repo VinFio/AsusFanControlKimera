@@ -106,6 +106,10 @@ namespace AsusFanControlKimera.UI
             Point value = ToCurvePoint(e.Location);
             if (points.Any(p => p.X == value.X))
                 return;
+            // Come nel trascinamento, la velocità non può scendere al salire della temperatura.
+            int minimumY = points.Where(p => p.X < value.X).Select(p => p.Y).DefaultIfEmpty(1).Max();
+            int maximumY = points.Where(p => p.X > value.X).Select(p => p.Y).DefaultIfEmpty(100).Min();
+            value.Y = Math.Max(minimumY, Math.Min(maximumY, value.Y));
             points.Add(value);
             NormalizePoints();
             RaiseChanged();

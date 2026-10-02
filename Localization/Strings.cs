@@ -126,7 +126,13 @@ namespace AsusFanControlKimera.Localization
                 { "CurveMinimumPoints", "La curva deve contenere almeno due punti." },
                 { "CurveDuplicateTemperature", "Ogni temperatura può comparire una sola volta." },
                 { "CurveDecreasingSpeed", "La velocità non può diminuire all'aumentare della temperatura." },
-                { "DriverFanCount", "Il driver ASUS non ha restituito un conteggio ventole valido (1-8) dopo 20 tentativi." }
+                { "DriverFanCount", "Il driver ASUS non ha restituito un conteggio ventole valido (1-8) dopo 20 tentativi." },
+                { "LogViewerTitle", "Kimera - registro diagnostico" },
+                { "LogReadFailed", "Impossibile leggere il registro: {0}" },
+                { "Close", "Chiudi" },
+                { "RestartFailed", "Impostazioni ripristinate, ma non è stato possibile riavviare Kimera:\n{0}\n\nAvvialo manualmente." },
+                { "UnprotectedLocationTitle", "Kimera - cartella non protetta" },
+                { "UnprotectedLocationText", "Kimera viene eseguito come SYSTEM, ma questi percorsi possono essere modificati anche da account non amministratori:\n\n{0}\n\nUn programma eseguito senza privilegi potrebbe sostituire questi file e ottenere il controllo completo del PC. Si consiglia di spostare Kimera in una cartella protetta, ad esempio C:\\Program Files\\AsusFanControlKimera.\n\nAvviare comunque da questa posizione? La scelta verrà ricordata per questa cartella." }
             };
 
         private static readonly IDictionary<string, string> EnglishStrings =
@@ -244,7 +250,13 @@ namespace AsusFanControlKimera.Localization
                 { "CurveMinimumPoints", "The curve must contain at least two points." },
                 { "CurveDuplicateTemperature", "Each temperature may appear only once." },
                 { "CurveDecreasingSpeed", "Speed cannot decrease as temperature increases." },
-                { "DriverFanCount", "The ASUS driver did not return a valid fan count (1-8) after 20 attempts." }
+                { "DriverFanCount", "The ASUS driver did not return a valid fan count (1-8) after 20 attempts." },
+                { "LogViewerTitle", "Kimera - diagnostic log" },
+                { "LogReadFailed", "Unable to read the log: {0}" },
+                { "Close", "Close" },
+                { "RestartFailed", "Settings were reset, but Kimera could not be restarted:\n{0}\n\nPlease start it manually." },
+                { "UnprotectedLocationTitle", "Kimera - unprotected folder" },
+                { "UnprotectedLocationText", "Kimera runs as SYSTEM, but these paths can also be modified by non-administrator accounts:\n\n{0}\n\nA program running without privileges could replace these files and take full control of the PC. Moving Kimera to a protected folder, such as C:\\Program Files\\AsusFanControlKimera, is recommended.\n\nStart anyway from this location? Your choice will be remembered for this folder." }
             };
 
         private static string currentLanguage = Italian;

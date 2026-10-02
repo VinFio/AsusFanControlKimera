@@ -69,6 +69,13 @@ namespace AsusFanControlKimera.Properties
             set { this["DebugEnabled"] = value; }
         }
 
+        [UserScopedSetting, DefaultSettingValue("")]
+        public string AcceptedUnprotectedLocation
+        {
+            get { return (string)this["AcceptedUnprotectedLocation"]; }
+            set { this["AcceptedUnprotectedLocation"] = value; }
+        }
+
         [UserScopedSetting, DefaultSettingValue("it")]
         public string Language
         {

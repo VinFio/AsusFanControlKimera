@@ -67,6 +67,8 @@ namespace AsusFanControlKimera.UI
         private int consecutiveReadFailures;
         private int consecutiveInvalidTemperatures;
         private int consecutiveZeroRpmSamples;
+        private static readonly TimeSpan ZeroRpmGracePeriod = TimeSpan.FromSeconds(5);
+        private DateTime zeroRpmCheckNotBefore = DateTime.MinValue;
         private ulong lastObservedTemperature;
         private bool hasObservedTemperature;
         private IList<int> lastObservedFanSpeeds = new List<int>();
@@ -504,7 +506,12 @@ namespace AsusFanControlKimera.UI
                 DiagnosticLogger.Log("ERROR", "Inizializzazione hardware fallita: " + ex);
                 statusValue.Text = Strings.Format("HardwareUnavailable", ex.Message);
                 statusValue.ForeColor = Color.Firebrick;
+                // Mostra Sistema ASUS senza sovrascrivere la modalità salvata:
+                // il guasto potrebbe essere temporaneo.
+                loading = true;
                 systemMode.Checked = true;
+                loading = false;
+                curveText.Enabled = false;
                 SetControlsAvailable(false);
                 MessageBox.Show(Strings.Format("HardwareInitFailedText", ex.Message),
                     Strings.Get("HardwareUnavailableTitle"), MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -593,13 +600,20 @@ namespace AsusFanControlKimera.UI
             ApplySpeed(speed, Strings.Format("ManualStatus", speed), force);
         }
 
-        private void ApplySpeed(int speed, string status, bool force)
+        private bool ApplySpeed(int speed, string status, bool force)
         {
-            if (controller == null || (!force && lastAppliedSpeed == speed))
-                return;
+            if (controller == null)
+                return false;
+            if (!force && lastAppliedSpeed == speed)
+                return true;
             try
             {
                 controller.SetAllFans(speed);
+                // Solo partendo da ventole forse ferme (firmware, stato ignoto o
+                // velocità sotto il 40%): le piccole variazioni della curva non
+                // devono rimandare continuamente il controllo 0 RPM.
+                if (speed >= 40 && lastAppliedSpeed < 40)
+                    zeroRpmCheckNotBefore = DateTime.UtcNow + ZeroRpmGracePeriod;
                 lastAppliedSpeed = speed;
                 DiagnosticLogger.Log("PWM", string.Format(
                     "mode={0}; requested={1}%; duty={2}/255; fans={3}",
@@ -608,12 +622,19 @@ namespace AsusFanControlKimera.UI
                 statusValue.Text = Strings.Format("CommandSent",
                     status, controller.LastFanCount, controller.LastDuty);
                 UpdateTrayText();
+                return true;
             }
             catch (Exception ex)
             {
+                // SetAllFans può aver già restituito le ventole al firmware:
+                // lo stato precedente non è più affidabile, quindi il prossimo
+                // comando deve essere inviato comunque.
+                lastAppliedSpeed = -1;
                 DiagnosticLogger.Log("ERROR", "Comando ventole fallito: " + ex);
                 statusValue.ForeColor = Color.Firebrick;
                 statusValue.Text = Strings.Format("FanControlError", ex.Message);
+                UpdateTrayText();
+                return false;
             }
         }
 
@@ -652,7 +673,12 @@ namespace AsusFanControlKimera.UI
                     lastAppliedSpeed, controller.LastDuty);
 
                 int temperature = rawTemperature > int.MaxValue ? int.MaxValue : (int)rawTemperature;
-                if (lastAppliedSpeed >= 40 && speeds.Count > 0 && speeds.Any(rpm => rpm <= 0))
+                bool controllingFans = !systemMode.Checked;
+                // Dopo un cambio di velocità le ventole ferme hanno bisogno di
+                // qualche secondo per ripartire: niente conteggio 0 RPM in quel periodo.
+                if (controllingFans && lastAppliedSpeed >= 40 &&
+                    DateTime.UtcNow >= zeroRpmCheckNotBefore &&
+                    speeds.Count > 0 && speeds.Any(rpm => rpm <= 0))
                     consecutiveZeroRpmSamples++;
                 else
                     consecutiveZeroRpmSamples = 0;
@@ -673,7 +699,7 @@ namespace AsusFanControlKimera.UI
                     statusValue.ForeColor = Color.Firebrick;
                     statusValue.Text = Strings.Format("InvalidTemperatureStatus",
                         temperature, consecutiveInvalidTemperatures);
-                    if (consecutiveInvalidTemperatures >= 2)
+                    if (controllingFans && consecutiveInvalidTemperatures >= 2)
                         ActivateFailSafe(Strings.Get("InvalidTemperatureReason"), "-");
                     return;
                 }
@@ -684,8 +710,9 @@ namespace AsusFanControlKimera.UI
                      Math.Abs(temperature - lastCurveTemperature) >= (int)hysteresis.Value))
                 {
                     int speed = SafeSpeed(FanCurve.Evaluate(curvePoints, temperature));
-                    ApplySpeed(speed, Strings.Format("CurveStatus", temperature, speed), false);
-                    lastCurveTemperature = temperature;
+                    // Se il comando fallisce si riprova alla lettura successiva.
+                    if (ApplySpeed(speed, Strings.Format("CurveStatus", temperature, speed), false))
+                        lastCurveTemperature = temperature;
                 }
             }
             catch (Exception ex)
@@ -696,7 +723,7 @@ namespace AsusFanControlKimera.UI
                 statusValue.ForeColor = Color.Firebrick;
                 statusValue.Text = Strings.Format("HardwareReadError",
                     consecutiveReadFailures, ex.Message);
-                if (consecutiveReadFailures >= 3)
+                if (consecutiveReadFailures >= 3 && !systemMode.Checked)
                     ActivateFailSafe(Strings.Get("HardwareReadReason"), "-");
             }
             finally
@@ -714,7 +741,19 @@ namespace AsusFanControlKimera.UI
 
         private void CurveEditorChanged(object sender, EventArgs e)
         {
-            curvePoints = curveEditor.Points.ToList();
+            List<Point> edited;
+            try
+            {
+                // Una curva non valida verrebbe scartata al riavvio insieme
+                // all'eventuale profilo che la contiene.
+                edited = FanCurve.Parse(FanCurve.Serialize(curveEditor.Points));
+            }
+            catch (FormatException)
+            {
+                curveEditor.Points = curvePoints;
+                return;
+            }
+            curvePoints = edited;
             curveText.Text = FanCurve.Serialize(curvePoints);
             SaveCurve();
         }
@@ -1272,6 +1311,8 @@ namespace AsusFanControlKimera.UI
                 return;
             }
 
+            // Blocca anche le letture hardware ancora in corso in background.
+            exiting = true;
             refreshTimer.Stop();
             startupTimer.Stop();
             DiagnosticLogger.Log("SHUTDOWN", "Chiusura applicazione richiesta.");
@@ -1305,10 +1346,22 @@ namespace AsusFanControlKimera.UI
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 return;
             Settings.Default.Reset();
+            // Evita che Upgrade() reimporti le impostazioni di una versione precedente.
+            Settings.Default.UpgradeRequired = false;
+            Settings.Default.InteractiveUserSid = Program.InteractiveUserSid ?? string.Empty;
             Settings.Default.Save();
-            Application.Restart();
             exiting = true;
             Close();
+            try
+            {
+                Program.StartReplacementInstance();
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.Log("ERROR", "Riavvio dopo il ripristino fallito: " + ex);
+                MessageBox.Show(Strings.Format("RestartFailed", ex.Message), "Kimera",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
         }
 
         private void ShowAbout(object sender, EventArgs e)
@@ -1468,7 +1521,15 @@ namespace AsusFanControlKimera.UI
             {
                 failSafeDialog = new FailSafeDialog(
                     DateTime.Now, reason, affectedFans, snapshot, released);
-                failSafeDialog.FormClosed += delegate { failSafeDialog = null; };
+                failSafeDialog.FormClosed += delegate
+                {
+                    failSafeDialog = null;
+                    // Avviso confermato: Kimera è in Sistema ASUS e il testo
+                    // dell'icona può tornare a mostrare lo stato reale.
+                    failSafeActive = false;
+                    if (!exiting && !IsDisposed)
+                        UpdateTrayText();
+                };
                 failSafeDialog.Show();
                 failSafeDialog.Activate();
             }

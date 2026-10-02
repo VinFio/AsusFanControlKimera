@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
@@ -70,12 +69,8 @@ namespace AsusFanControlKimera.UI
             {
                 try
                 {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = "notepad.exe",
-                        Arguments = "\"" + DiagnosticLogger.LogPath + "\"",
-                        UseShellExecute = true
-                    });
+                    var viewer = new LogViewerDialog();
+                    viewer.Show(this);
                 }
                 catch (Exception ex)
                 {
