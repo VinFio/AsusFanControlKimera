@@ -11,7 +11,7 @@ using AsusFanControlKimera.Hardware;
 using AsusFanControlKimera.Localization;
 using AsusFanControlKimera.Model;
 using AsusFanControlKimera.Properties;
-using Microsoft.Win32;
+using AsusFanControlKimera.Setup;
 
 namespace AsusFanControlKimera.UI
 {
@@ -42,6 +42,8 @@ namespace AsusFanControlKimera.UI
         private readonly ToolStripMenuItem startMinimizedItem = new ToolStripMenuItem();
         private readonly ToolStripMenuItem startWithWindowsItem = new ToolStripMenuItem();
         private readonly ToolStripMenuItem debugItem = new ToolStripMenuItem();
+        private readonly ToolStripMenuItem installItem = new ToolStripMenuItem();
+        private readonly ToolStripMenuItem uninstallItem = new ToolStripMenuItem();
         private readonly ToolStripMenuItem italianLanguageItem = new ToolStripMenuItem();
         private readonly ToolStripMenuItem englishLanguageItem = new ToolStripMenuItem();
         private readonly ToolStripMenuItem russianLanguageItem = new ToolStripMenuItem();
@@ -61,7 +63,14 @@ namespace AsusFanControlKimera.UI
         private int lastCurveTemperature = int.MinValue;
         private int lastAppliedSpeed = -1;
         private bool loading = true;
-        private bool exiting;
+        // Letto anche dai comandi alle ventole in background.
+        private volatile bool exiting;
+        private SpeedRequest pendingSpeedRequest;
+        private bool speedWriterActive;
+        private int inFlightSpeed = -1;
+        private int speedWriteGeneration;
+        private readonly Timer curveCommitTimer = new Timer();
+        private bool uninstalling;
         private bool refreshInProgress;
         private bool failSafeActive;
         private int consecutiveReadFailures;
@@ -89,6 +98,8 @@ namespace AsusFanControlKimera.UI
             refreshTimer.Tick += RefreshTimerTick;
             startupTimer.Interval = 750;
             startupTimer.Tick += StartupTimerTick;
+            curveCommitTimer.Interval = 400;
+            curveCommitTimer.Tick += CurveCommitTimerTick;
             Shown += MainFormShown;
             FormClosing += MainFormClosing;
             Resize += MainFormResize;
@@ -130,8 +141,16 @@ namespace AsusFanControlKimera.UI
                 new ToolStripSeparator(), language,
                 new ToolStripSeparator(), debugItem,
                 new ToolStripSeparator(), LocalizeItem(
-                    new ToolStripMenuItem(null, null, ResetSettings), "ResetSettings")
+                    new ToolStripMenuItem(null, null, ResetSettings), "ResetSettings"),
+                new ToolStripSeparator(), installItem, uninstallItem
             });
+            LocalizeItem(installItem, "InstallMenu");
+            LocalizeItem(uninstallItem, "UninstallMenu");
+            installItem.Click += InstallKimera;
+            uninstallItem.Click += UninstallKimera;
+            bool installed = Installer.IsRunningFromInstallDirectory;
+            installItem.Visible = !installed;
+            uninstallItem.Visible = installed;
             var help = LocalizeItem(new ToolStripMenuItem(), "Help");
             help.DropDownItems.Add(LocalizeItem(
                 new ToolStripMenuItem(null, null, ShowAbout), "About"));
@@ -463,10 +482,9 @@ namespace AsusFanControlKimera.UI
             releaseOnExitItem.Checked = Settings.Default.ReleaseOnExit;
             minimizeToTrayItem.Checked = Settings.Default.MinimizeToTray;
             startMinimizedItem.Checked = Settings.Default.StartMinimized;
-            startWithWindowsItem.Enabled = !string.IsNullOrEmpty(Program.InteractiveUserSid);
-            startWithWindowsItem.Checked = IsStartupEnabled();
             debugItem.Checked = Settings.Default.DebugEnabled;
             DiagnosticLogger.Configure(Settings.Default.DebugEnabled);
+            ConfigureStartupItem();
             manualSpeed.Value = Clamp(Settings.Default.ManualSpeed, 1, 100);
             hysteresis.Value = Clamp(Settings.Default.Hysteresis, 0, 15);
             interval.Value = Clamp(Settings.Default.RefreshInterval, 500, 10000);
@@ -600,41 +618,100 @@ namespace AsusFanControlKimera.UI
             ApplySpeed(speed, Strings.Format("ManualStatus", speed), force);
         }
 
-        private bool ApplySpeed(int speed, string status, bool force)
+        // I comandi alle ventole vengono eseguiti in background, uno alla volta:
+        // una lettura hardware lenta (anche alcuni secondi) non blocca più
+        // l'interfaccia. Se arrivano più richieste, conta solo l'ultima.
+        private void ApplySpeed(int speed, string status, bool force)
         {
             if (controller == null)
-                return false;
-            if (!force && lastAppliedSpeed == speed)
-                return true;
+                return;
+            if (!force && ExpectedSpeed() == speed)
+                return;
+            pendingSpeedRequest = new SpeedRequest(speed, status);
+            if (!speedWriterActive)
+                RunSpeedWriter();
+        }
+
+        private int ExpectedSpeed()
+        {
+            if (pendingSpeedRequest != null)
+                return pendingSpeedRequest.Speed;
+            return speedWriterActive ? inFlightSpeed : lastAppliedSpeed;
+        }
+
+        /// <summary>
+        /// Annulla i comandi in attesa o in corso: va chiamato prima di un rilascio
+        /// sincrono al firmware (fail-safe, chiusura) perché nessun comando
+        /// precedente possa arrivare dopo.
+        /// </summary>
+        private void CancelPendingSpeedWrites()
+        {
+            pendingSpeedRequest = null;
+            System.Threading.Interlocked.Increment(ref speedWriteGeneration);
+        }
+
+        private async void RunSpeedWriter()
+        {
+            speedWriterActive = true;
             try
             {
-                controller.SetAllFans(speed);
-                // Solo partendo da ventole forse ferme (firmware, stato ignoto o
-                // velocità sotto il 40%): le piccole variazioni della curva non
-                // devono rimandare continuamente il controllo 0 RPM.
-                if (speed >= 40 && lastAppliedSpeed < 40)
-                    zeroRpmCheckNotBefore = DateTime.UtcNow + ZeroRpmGracePeriod;
-                lastAppliedSpeed = speed;
-                DiagnosticLogger.Log("PWM", string.Format(
-                    "mode={0}; requested={1}%; duty={2}/255; fans={3}",
-                    CurrentModeName(), speed, controller.LastDuty, controller.LastFanCount));
-                statusValue.ForeColor = Color.DimGray;
-                statusValue.Text = Strings.Format("CommandSent",
-                    status, controller.LastFanCount, controller.LastDuty);
-                UpdateTrayText();
-                return true;
+                while (pendingSpeedRequest != null && !exiting && !IsDisposed)
+                {
+                    SpeedRequest request = pendingSpeedRequest;
+                    pendingSpeedRequest = null;
+                    inFlightSpeed = request.Speed;
+                    int generation = speedWriteGeneration;
+                    AsusFanController target = controller;
+                    bool written;
+                    try
+                    {
+                        written = await Task.Run(delegate
+                        {
+                            return target.SetAllFans(request.Speed, delegate
+                            {
+                                return !exiting && System.Threading.Volatile.Read(
+                                    ref speedWriteGeneration) == generation;
+                            });
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        if (exiting || IsDisposed || generation != speedWriteGeneration)
+                            continue;
+                        // SetAllFans può aver già restituito le ventole al firmware:
+                        // lo stato precedente non è più affidabile, quindi il prossimo
+                        // comando deve essere inviato comunque, anche dalla curva.
+                        lastAppliedSpeed = -1;
+                        lastCurveTemperature = int.MinValue;
+                        DiagnosticLogger.Log("ERROR", "Comando ventole fallito: " + ex);
+                        statusValue.ForeColor = Color.Firebrick;
+                        statusValue.Text = Strings.Format("FanControlError", ex.Message);
+                        UpdateTrayText();
+                        continue;
+                    }
+
+                    // Comando superato da un rilascio al firmware nel frattempo.
+                    if (!written || exiting || IsDisposed || generation != speedWriteGeneration)
+                        continue;
+
+                    // Solo partendo da ventole forse ferme (firmware, stato ignoto o
+                    // velocità sotto il 40%): le piccole variazioni della curva non
+                    // devono rimandare continuamente il controllo 0 RPM.
+                    if (request.Speed >= 40 && lastAppliedSpeed < 40)
+                        zeroRpmCheckNotBefore = DateTime.UtcNow + ZeroRpmGracePeriod;
+                    lastAppliedSpeed = request.Speed;
+                    DiagnosticLogger.Log("PWM", string.Format(
+                        "mode={0}; requested={1}%; duty={2}/255; fans={3}",
+                        CurrentModeName(), request.Speed, target.LastDuty, target.LastFanCount));
+                    statusValue.ForeColor = Color.DimGray;
+                    statusValue.Text = Strings.Format("CommandSent",
+                        request.Status, target.LastFanCount, target.LastDuty);
+                    UpdateTrayText();
+                }
             }
-            catch (Exception ex)
+            finally
             {
-                // SetAllFans può aver già restituito le ventole al firmware:
-                // lo stato precedente non è più affidabile, quindi il prossimo
-                // comando deve essere inviato comunque.
-                lastAppliedSpeed = -1;
-                DiagnosticLogger.Log("ERROR", "Comando ventole fallito: " + ex);
-                statusValue.ForeColor = Color.Firebrick;
-                statusValue.Text = Strings.Format("FanControlError", ex.Message);
-                UpdateTrayText();
-                return false;
+                speedWriterActive = false;
             }
         }
 
@@ -710,9 +787,10 @@ namespace AsusFanControlKimera.UI
                      Math.Abs(temperature - lastCurveTemperature) >= (int)hysteresis.Value))
                 {
                     int speed = SafeSpeed(FanCurve.Evaluate(curvePoints, temperature));
-                    // Se il comando fallisce si riprova alla lettura successiva.
-                    if (ApplySpeed(speed, Strings.Format("CurveStatus", temperature, speed), false))
-                        lastCurveTemperature = temperature;
+                    // Se il comando fallisce, RunSpeedWriter azzera lastCurveTemperature
+                    // e la curva viene riapplicata alla lettura successiva.
+                    lastCurveTemperature = temperature;
+                    ApplySpeed(speed, Strings.Format("CurveStatus", temperature, speed), false);
                 }
             }
             catch (Exception ex)
@@ -799,9 +877,19 @@ namespace AsusFanControlKimera.UI
 
         private void SaveCurve()
         {
+            // Il salvataggio su disco e l'applicazione alle ventole partono 400 ms
+            // dopo l'ultima modifica: più punti creati o spostati di seguito
+            // producono un solo salvataggio e un solo comando.
             Settings.Default.Curve = FanCurve.Serialize(curvePoints);
-            Settings.Default.Save();
             RefreshCurveProfileUi();
+            curveCommitTimer.Stop();
+            curveCommitTimer.Start();
+        }
+
+        private void CurveCommitTimerTick(object sender, EventArgs e)
+        {
+            curveCommitTimer.Stop();
+            Settings.Default.Save();
             lastCurveTemperature = int.MinValue;
             if (curveMode.Checked)
                 RefreshHardware(true);
@@ -1220,16 +1308,25 @@ namespace AsusFanControlKimera.UI
                 return;
             try
             {
-                using (RegistryKey key = OpenInteractiveUserRunKey(true))
+                string sid = Program.InteractiveUserSid;
+                if (string.IsNullOrEmpty(sid))
+                    throw new InvalidOperationException(
+                        Strings.Get("InteractiveProfileUnavailable"));
+                if (startWithWindowsItem.Checked)
                 {
-                    if (key == null)
-                        throw new InvalidOperationException(
-                            Strings.Get("InteractiveProfileUnavailable"));
-                    if (startWithWindowsItem.Checked)
-                        key.SetValue("AsusFanControlKimera", "\"" + Application.ExecutablePath + "\"");
-                    else
-                        key.DeleteValue("AsusFanControlKimera", false);
+                    // L'attività avvia Kimera con privilegi elevati senza conferma:
+                    // è consentita solo verso la copia protetta in Program Files.
+                    if (!Installer.IsRunningFromInstallDirectory)
+                        throw new InvalidOperationException(Strings.Get("StartupRequiresInstall"));
+                    StartupTask.Create(Application.ExecutablePath, sid);
+                    DiagnosticLogger.Log("STARTUP", "Attività pianificata di avvio creata.");
                 }
+                else
+                {
+                    StartupTask.Delete();
+                    DiagnosticLogger.Log("STARTUP", "Attività pianificata di avvio rimossa.");
+                }
+                StartupTask.DeleteLegacyRun(sid);
             }
             catch (Exception ex)
             {
@@ -1261,19 +1358,115 @@ namespace AsusFanControlKimera.UI
         {
             try
             {
-                using (RegistryKey key = OpenInteractiveUserRunKey(false))
-                    return key != null && key.GetValue("AsusFanControlKimera") != null;
+                return StartupTask.GetCommand() != null ||
+                    StartupTask.LegacyRunExists(Program.InteractiveUserSid);
             }
             catch { return false; }
         }
 
-        private RegistryKey OpenInteractiveUserRunKey(bool writable)
+        private void ConfigureStartupItem()
         {
-            if (string.IsNullOrEmpty(Program.InteractiveUserSid))
-                return null;
-            string path = Program.InteractiveUserSid +
-                @"\Software\Microsoft\Windows\CurrentVersion\Run";
-            return Registry.Users.OpenSubKey(path, writable);
+            string sid = Program.InteractiveUserSid;
+            bool installed = Installer.IsRunningFromInstallDirectory;
+            bool enabled = IsStartupEnabled();
+            // Fuori da Program Files resta disponibile solo per disattivarlo.
+            startWithWindowsItem.Enabled = !string.IsNullOrEmpty(sid) && (installed || enabled);
+            startWithWindowsItem.ToolTipText = installed ? null : Strings.Get("StartupRequiresInstall");
+            startWithWindowsItem.Checked = enabled;
+            if (!installed || string.IsNullOrEmpty(sid) || !enabled)
+                return;
+
+            // Ripara l'avvio automatico: migra la vecchia chiave Run e riallinea
+            // l'attività se punta a un altro eseguibile.
+            try
+            {
+                string command = StartupTask.GetCommand();
+                bool legacy = StartupTask.LegacyRunExists(sid);
+                if (legacy || command == null ||
+                    !Installer.PathsEqual(command, Application.ExecutablePath))
+                {
+                    StartupTask.Create(Application.ExecutablePath, sid);
+                    StartupTask.DeleteLegacyRun(sid);
+                    DiagnosticLogger.Log("STARTUP", "Avvio automatico riallineato all'attività pianificata.");
+                }
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.Log("ERROR", "Riallineamento avvio automatico fallito: " + ex);
+            }
+        }
+
+        private void InstallKimera(object sender, EventArgs e)
+        {
+            if (Installer.IsRunningFromInstallDirectory)
+                return;
+            if (MessageBox.Show(Strings.Format("InstallFromMenuPrompt", Installer.InstallDirectory),
+                Strings.Get("InstallTitle"), MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+                return;
+            if (!Installer.Install(Program.InteractiveUserSid))
+                return;
+            // PsExec servirà dal prossimo avvio (attività pianificata o menu Start).
+            Installer.EnsureInstalledPsExec();
+
+            DiagnosticLogger.Log("SETUP", "Kimera installato in " + Installer.InstallDirectory);
+            exiting = true;
+            Close();
+            try
+            {
+                Program.StartReplacementInstance(Installer.InstalledExecutable);
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.Log("ERROR", "Avvio della copia installata fallito: " + ex);
+                MessageBox.Show(Strings.Format("RestartFailed", ex.Message), "Kimera",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        private void UninstallKimera(object sender, EventArgs e)
+        {
+            if (!Installer.IsRunningFromInstallDirectory ||
+                MessageBox.Show(Strings.Format("UninstallPrompt", Installer.InstallDirectory),
+                    Strings.Get("UninstallTitle"), MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                return;
+            try
+            {
+                StartupTask.Delete();
+                if (!string.IsNullOrEmpty(Program.InteractiveUserSid))
+                    StartupTask.DeleteLegacyRun(Program.InteractiveUserSid);
+                Installer.ScheduleUninstall();
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.Log("ERROR", "Disinstallazione fallita: " + ex);
+                MessageBox.Show(Strings.Format("UninstallFailed", ex.Message),
+                    Strings.Get("UninstallTitle"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            DiagnosticLogger.Log("SETUP", "Disinstallazione avviata.");
+            uninstalling = true;
+            exiting = true;
+            Close();
+        }
+
+        /// <summary>Chiusura ordinata richiesta da un'installazione (thread qualsiasi).</summary>
+        internal void RequestShutdown()
+        {
+            try
+            {
+                BeginInvoke((MethodInvoker)delegate
+                {
+                    DiagnosticLogger.Log("SHUTDOWN", "Chiusura richiesta dall'installazione di un aggiornamento.");
+                    exiting = true;
+                    Close();
+                });
+            }
+            catch (InvalidOperationException)
+            {
+                // Finestra non ancora creata o già chiusa.
+            }
         }
 
         private void MainFormShown(object sender, EventArgs e)
@@ -1313,12 +1506,20 @@ namespace AsusFanControlKimera.UI
 
             // Blocca anche le letture hardware ancora in corso in background.
             exiting = true;
+            CancelPendingSpeedWrites();
             refreshTimer.Stop();
             startupTimer.Stop();
+            if (curveCommitTimer.Enabled)
+            {
+                curveCommitTimer.Stop();
+                Settings.Default.Save();
+            }
+            curveCommitTimer.Dispose();
             DiagnosticLogger.Log("SHUTDOWN", "Chiusura applicazione richiesta.");
             try
             {
-                if (controller != null && releaseOnExitItem.Checked)
+                // Dopo la disinstallazione nessuno potrebbe più restituire il controllo.
+                if (controller != null && (releaseOnExitItem.Checked || uninstalling))
                 {
                     controller.ReleaseControl();
                     DiagnosticLogger.Log("PWM",
@@ -1395,7 +1596,7 @@ namespace AsusFanControlKimera.UI
             italianLanguageItem.Checked = Strings.CurrentLanguage == Strings.Italian;
             englishLanguageItem.Checked = Strings.CurrentLanguage == Strings.English;
             russianLanguageItem.Checked = Strings.CurrentLanguage == Strings.Russian;
-            curveEditor.Invalidate();
+            curveEditor.RefreshText();
             if (curvePoints != null)
                 RefreshCurveProfileUi();
             PerformLayout();
@@ -1469,6 +1670,8 @@ namespace AsusFanControlKimera.UI
             failSafeActive = true;
             int pwmBeforeFailSafe = lastAppliedSpeed;
             int dutyBeforeFailSafe = controller == null ? -1 : controller.LastDuty;
+            // Nessun comando in attesa o in corso può arrivare dopo il rilascio.
+            CancelPendingSpeedWrites();
             bool released = false;
             try
             {
@@ -1574,6 +1777,18 @@ namespace AsusFanControlKimera.UI
             public override string ToString()
             {
                 return displayText;
+            }
+        }
+
+        private sealed class SpeedRequest
+        {
+            internal readonly int Speed;
+            internal readonly string Status;
+
+            internal SpeedRequest(int speed, string status)
+            {
+                Speed = speed;
+                Status = status;
             }
         }
 

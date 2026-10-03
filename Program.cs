@@ -1,8 +1,10 @@
 using System;
 using System.Diagnostics;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Threading;
 using System.Windows.Forms;
@@ -10,6 +12,7 @@ using AsusFanControlKimera.Diagnostics;
 using AsusFanControlKimera.Localization;
 using AsusFanControlKimera.Properties;
 using AsusFanControlKimera.Security;
+using AsusFanControlKimera.Setup;
 using AsusFanControlKimera.UI;
 
 namespace AsusFanControlKimera
@@ -23,6 +26,8 @@ namespace AsusFanControlKimera
         [STAThread]
         private static void Main(string[] args)
         {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
             Strings.SetLanguage(Settings.Default.Language);
             if (!EnsureSystemIdentity(args))
                 return;
@@ -52,8 +57,6 @@ namespace AsusFanControlKimera
 
         private static void RunApplication()
         {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             MainForm mainForm = null;
             Application.ThreadException += delegate(object sender, ThreadExceptionEventArgs e)
@@ -71,8 +74,50 @@ namespace AsusFanControlKimera
                 if (mainForm != null)
                     mainForm.TryEmergencyReleaseHardware();
             };
-            mainForm = new MainForm();
-            Application.Run(mainForm);
+
+            // Permette all'installazione di un aggiornamento di chiudere questa
+            // istanza in modo ordinato (ventole restituite al firmware).
+            using (EventWaitHandle shutdown = CreateShutdownEvent())
+            {
+                RegisteredWaitHandle registration = shutdown == null ? null :
+                    ThreadPool.RegisterWaitForSingleObject(shutdown, delegate
+                    {
+                        MainForm form = mainForm;
+                        if (form != null)
+                            form.RequestShutdown();
+                    }, null, Timeout.Infinite, true);
+                try
+                {
+                    mainForm = new MainForm();
+                    Application.Run(mainForm);
+                }
+                finally
+                {
+                    if (registration != null)
+                        registration.Unregister(null);
+                }
+            }
+        }
+
+        private static EventWaitHandle CreateShutdownEvent()
+        {
+            try
+            {
+                // Solo SYSTEM e gli amministratori possono chiedere la chiusura.
+                var security = new EventWaitHandleSecurity();
+                security.AddAccessRule(new EventWaitHandleAccessRule(FileSystemTrust.SystemSid,
+                    EventWaitHandleRights.FullControl, AccessControlType.Allow));
+                security.AddAccessRule(new EventWaitHandleAccessRule(FileSystemTrust.AdministratorsSid,
+                    EventWaitHandleRights.FullControl, AccessControlType.Allow));
+                bool created;
+                return new EventWaitHandle(false, EventResetMode.AutoReset,
+                    Installer.ShutdownEventName, out created, security);
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.Log("ERROR", "Evento di chiusura non disponibile: " + ex);
+                return null;
+            }
         }
 
         private static bool AcquireSingleInstance(Mutex mutex, int timeout)
@@ -95,14 +140,19 @@ namespace AsusFanControlKimera
         /// </summary>
         internal static void StartReplacementInstance()
         {
+            StartReplacementInstance(Application.ExecutablePath);
+        }
+
+        internal static void StartReplacementInstance(string executable)
+        {
             string arguments = RestartArgument;
             if (!string.IsNullOrEmpty(InteractiveUserSid))
                 arguments += " --interactive-user-sid=\"" + InteractiveUserSid + "\"";
             Process.Start(new ProcessStartInfo
             {
-                FileName = Application.ExecutablePath,
+                FileName = executable,
                 Arguments = arguments,
-                WorkingDirectory = Application.StartupPath,
+                WorkingDirectory = Path.GetDirectoryName(executable),
                 UseShellExecute = false
             });
         }
@@ -150,24 +200,64 @@ namespace AsusFanControlKimera
                 }
             }
 
-            string psExec = FindPsExec();
+            RunElevatedStage();
+            return false;
+        }
+
+        // Fase con privilegi di amministratore: installazione o aggiornamento se
+        // necessari, quindi avvio come SYSTEM tramite PsExec.
+        private static void RunElevatedStage()
+        {
+            string target = Application.ExecutablePath;
+            Version installedVersion = Installer.InstalledVersion;
+            bool updateAvailable = installedVersion != null && installedVersion < Installer.CurrentVersion;
+            // Una cartella accettata con "Esegui da qui" non chiede più nulla,
+            // salvo quando questa copia può aggiornare quella installata.
+            if (!Installer.IsRunningFromInstallDirectory &&
+                (updateAvailable || !Installer.IsUnprotectedLocationAccepted(Application.StartupPath)))
+            {
+                switch (AskInstallation())
+                {
+                    case InstallAction.Install:
+                        if (!Installer.Install(InteractiveUserSid))
+                            return;
+                        target = Installer.InstalledExecutable;
+                        break;
+                    case InstallAction.RunInstalled:
+                        target = Installer.InstalledExecutable;
+                        break;
+                    case InstallAction.RunHere:
+                        // Scelta consapevole (il messaggio spiega il rischio): non
+                        // viene più chiesta per questa cartella.
+                        Installer.AcceptUnprotectedLocation(Application.StartupPath);
+                        break;
+                    default:
+                        return;
+                }
+            }
+
+            string directory = Path.GetDirectoryName(target);
+            bool installed = Installer.IsInstallDirectory(directory);
+            string psExec = installed ? Installer.EnsureInstalledPsExec() : Installer.FindSignedPsExec();
             if (psExec == null)
             {
-                MessageBox.Show(Strings.Get("PsExecMissingText"),
-                    Strings.Get("PsExecMissingTitle"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return false;
+                // EnsureInstalledPsExec mostra già il proprio messaggio.
+                if (!installed)
+                    MessageBox.Show(Strings.Get("PsExecMissingText"),
+                        Strings.Get("PsExecMissingTitle"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
             }
-            if (!ConfirmProtectedLocation(psExec))
-                return false;
+            if (!ConfirmProtectedLocation(target, psExec))
+                return;
 
             try
             {
                 var process = Process.Start(new ProcessStartInfo
                 {
                     FileName = psExec,
-                    Arguments = "-accepteula -i -s -d \"" + Application.ExecutablePath +
+                    Arguments = "-accepteula -i -s -d \"" + target +
                         "\" --interactive-user-sid=\"" + InteractiveUserSid + "\"",
-                    WorkingDirectory = Application.StartupPath,
+                    WorkingDirectory = directory,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 });
@@ -179,7 +269,42 @@ namespace AsusFanControlKimera
                 MessageBox.Show(Strings.Format("LaunchSystemFailed", ex.Message),
                     "Kimera", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-            return false;
+        }
+
+        private enum InstallAction { Cancel, Install, RunInstalled, RunHere }
+
+        private static InstallAction AskInstallation()
+        {
+            Version current = Installer.CurrentVersion;
+            Version installed = Installer.InstalledVersion;
+            string title = Strings.Get("InstallTitle");
+            string cancel = Strings.Get("Cancel");
+
+            if (installed == null)
+            {
+                int answer = ChoiceDialog.Show(title,
+                    Strings.Format("InstallPrompt", Installer.InstallDirectory), SystemIcons.Question,
+                    new[] { Strings.Get("InstallButton"), Strings.Get("RunHereButton"), cancel }, 0, 2);
+                return answer == 0 ? InstallAction.Install
+                    : answer == 1 ? InstallAction.RunHere : InstallAction.Cancel;
+            }
+
+            if (installed < current)
+            {
+                int answer = ChoiceDialog.Show(title,
+                    Strings.Format("UpdatePrompt", installed, Installer.InstallDirectory, current),
+                    SystemIcons.Question,
+                    new[] { Strings.Get("UpdateButton"), Strings.Get("RunInstalledButton"), cancel }, 0, 2);
+                return answer == 0 ? InstallAction.Install
+                    : answer == 1 ? InstallAction.RunInstalled : InstallAction.Cancel;
+            }
+
+            int choice = ChoiceDialog.Show(title,
+                Strings.Format("InstalledPrompt", installed, Installer.InstallDirectory),
+                SystemIcons.Information,
+                new[] { Strings.Get("RunInstalledButton"), Strings.Get("RunHereButton"), cancel }, 0, 2);
+            return choice == 0 ? InstallAction.RunInstalled
+                : choice == 1 ? InstallAction.RunHere : InstallAction.Cancel;
         }
 
         private static string ReadInteractiveUserSid(string[] args)
@@ -209,15 +334,15 @@ namespace AsusFanControlKimera
 
         // Kimera, AsusWinIO64.dll e PsExec vengono eseguiti come SYSTEM: se un account
         // non amministratore può modificarli, può ottenere privilegi SYSTEM.
-        private static bool ConfirmProtectedLocation(string psExec)
+        private static bool ConfirmProtectedLocation(string executable, string psExec)
         {
-            string directory = Application.StartupPath;
+            string directory = Path.GetDirectoryName(executable);
             var candidates = new List<string>
             {
                 directory,
-                Application.ExecutablePath,
+                executable,
                 Path.Combine(directory, "AsusWinIO64.dll"),
-                Application.ExecutablePath + ".config",
+                executable + ".config",
                 Path.GetDirectoryName(psExec),
                 psExec
             };
@@ -226,12 +351,7 @@ namespace AsusFanControlKimera
                 .Where(path => File.Exists(path) || Directory.Exists(path))
                 .Where(IsUnprotected)
                 .ToList();
-            if (unprotected.Count == 0)
-                return true;
-
-            string acceptedKey = directory + "|" + psExec;
-            if (string.Equals(Settings.Default.AcceptedUnprotectedLocation, acceptedKey,
-                StringComparison.OrdinalIgnoreCase))
+            if (unprotected.Count == 0 || Installer.IsUnprotectedLocationAccepted(directory))
                 return true;
 
             DialogResult answer = MessageBox.Show(
@@ -241,8 +361,7 @@ namespace AsusFanControlKimera
             if (answer != DialogResult.Yes)
                 return false;
 
-            Settings.Default.AcceptedUnprotectedLocation = acceptedKey;
-            Settings.Default.Save();
+            Installer.AcceptUnprotectedLocation(directory);
             return true;
         }
 
@@ -256,21 +375,6 @@ namespace AsusFanControlKimera
             {
                 return true;
             }
-        }
-
-        private static string FindPsExec()
-        {
-            // La cartella protetta di Program Files ha la precedenza su una copia locale.
-            string[] candidates =
-            {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                    "AsusFanControl", "PsExec.exe"),
-                Path.Combine(Application.StartupPath, "PsExec.exe")
-            };
-            foreach (string candidate in candidates)
-                if (File.Exists(candidate))
-                    return candidate;
-            return null;
         }
     }
 }

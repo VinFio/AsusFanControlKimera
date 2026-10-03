@@ -61,6 +61,16 @@ namespace AsusFanControlKimera.Hardware
 
         internal void SetAllFans(int percent)
         {
+            SetAllFans(percent, null);
+        }
+
+        /// <summary>
+        /// Come SetAllFans, ma il comando viene inviato solo se shouldWrite, valutato
+        /// mentre il controller è bloccato, restituisce true. Così un comando ormai
+        /// superato non può arrivare dopo un rilascio al firmware.
+        /// </summary>
+        internal bool SetAllFans(int percent, Func<bool> shouldWrite)
+        {
             percent = Math.Max(0, Math.Min(100, percent));
             // Mantiene volutamente la stessa conversione del motore AsusFanControl:
             // float, troncamento a byte, quindi promozione implicita per la P/Invoke.
@@ -69,6 +79,8 @@ namespace AsusFanControlKimera.Hardware
             lock (sync)
             {
                 EnsureAvailable();
+                if (shouldWrite != null && !shouldWrite())
+                    return false;
                 int count = GetFanCountWithRetry();
                 LastFanCount = count;
                 LastDuty = duty;
@@ -88,6 +100,7 @@ namespace AsusFanControlKimera.Hardware
                     TryReleaseKnownFans();
                     throw;
                 }
+                return true;
             }
         }
 

@@ -17,7 +17,8 @@ This project does not introduce a new hardware control engine. It combines the w
 - CPU temperature and RPM readings for all detected fans;
 - optional safety limits from 40% to 99%;
 - system tray support;
-- minimized startup and startup with Windows;
+- built-in installation, update, and uninstallation, without a separate setup program;
+- minimized startup and startup with Windows without a UAC prompt at every login;
 - optional release of fan control when the application exits;
 - optional debugging through a rotating diagnostic log;
 - complete Italian, English, and Russian interface, switchable at runtime from
@@ -63,20 +64,22 @@ mapping, or fan-control protocol.
 The current hardware library returns valid data only while Kimera runs under
 the `SYSTEM` account. Kimera therefore requires:
 
-- permission to display and approve a UAC elevation prompt;
-- Microsoft Sysinternals `PsExec.exe`, preferably at
-  `C:\Program Files (x86)\AsusFanControl\PsExec.exe` (searched first) or next
-  to Kimera.
+- an administrator account (UAC confirmation when Kimera is started manually);
+- Microsoft Sysinternals `PsExec.exe` with a valid Microsoft digital signature.
 
-PsExec is not distributed with Kimera. The application first elevates as
-administrator and then uses PsExec with `-i -s` to enter the interactive SYSTEM
-session, reproducing the `run.bat` file of the working AsusFanControl
-application.
+PsExec is not distributed with Kimera. During installation Kimera copies an
+existing signed PsExec (for example from
+`C:\Program Files (x86)\AsusFanControl`) into its own folder, or, after asking
+for confirmation, downloads it from the official Microsoft address
+`https://live.sysinternals.com/PsExec.exe`. Its Microsoft signature is verified
+before every use; an unsigned or modified PsExec is never executed.
+
+The application first elevates as administrator and then uses PsExec with
+`-i -s` to enter the interactive SYSTEM session, reproducing the `run.bat` file
+of the working AsusFanControl application.
 
 Before relaunching as `SYSTEM`, Kimera preserves the SID of the interactive
-user, so **Start with Windows** writes its configuration to the actual user's
-profile. A UAC confirmation is still required at login because PsExec requires
-elevation.
+user, so **Start with Windows** is configured for the actual user.
 
 A global mutex prevents multiple Windows sessions from controlling the same
 hardware at the same time.
@@ -124,10 +127,8 @@ by Kimera normally has permission to create and update this location.
 A precompiled version is available from the repository's
 [Releases](https://github.com/VinFio/AsusFanControlKimera/releases) section.
 
-Download the latest `AsusFanControlKimera-vX.X.X.zip` archive, extract it to a
-protected folder such as `C:\Program Files\AsusFanControlKimera` (see
-[Security Notes](#security-notes)), and keep the following files in the same
-folder:
+Download the latest `AsusFanControlKimera-vX.X.X.zip` archive and extract it to
+any folder, for example Downloads. Keep the following files together:
 
 - `AsusFanControlKimera.exe`
 - `AsusFanControlKimera.exe.config`
@@ -136,8 +137,46 @@ folder:
 Keep the included `README.md`, `LICENSE`, and `THIRD_PARTY_NOTICES.md` files
 with redistributed copies of the archive.
 
-Run `AsusFanControlKimera.exe`. The runtime, PsExec, and privilege requirements
-are described in [System Requirements](#system-requirements).
+Then follow [Installation, Update, and Removal](#installation-update-and-removal).
+The runtime, PsExec, and privilege requirements are described in
+[System Requirements](#system-requirements).
+
+## Installation, Update, and Removal
+
+Kimera installs itself; no separate setup program is needed.
+
+1. Run `AsusFanControlKimera.exe` from the extracted folder and confirm the UAC
+   prompt.
+2. Choose **Install**. Kimera copies its files to
+   `C:\Program Files\AsusFanControlKimera`, a folder that only administrators
+   can modify, creates a **Start** menu shortcut, prepares PsExec (copying a
+   signed copy or offering the download), and starts from the new location.
+3. The extracted folder is no longer needed and can be deleted.
+
+Choosing **Run from here** starts Kimera from the extracted folder without
+installing it. This is less secure (see [Security Notes](#security-notes)); the
+choice is remembered for that folder. Kimera can be installed later from
+**Options > Install to Program Files**.
+
+**Update:** extract the new version anywhere and run it. Kimera detects the
+installed version and offers **Update**. The running instance is closed in an
+orderly way, returning the fans to the firmware, and the files are replaced.
+Settings, curve profiles, and automatic startup are kept. Versions earlier than
+1.4.0 cannot be closed automatically: Kimera asks you to exit them from the
+notification area icon first.
+
+**Start with Windows** (available once installed) registers a Windows scheduled
+task named `AsusFanControlKimera`. It starts the installed Kimera 15 seconds
+after the user logs on, with administrator privileges and without a UAC prompt,
+also on battery power and without time limits. Previous versions used the
+`Run` registry key, which required UAC confirmation at every login; that entry
+is converted automatically.
+
+**Uninstall:** use **Options > Uninstall Kimera** from the installed copy. Fan
+control is returned to the firmware, the scheduled task and the Start menu
+shortcut are removed, and the installation folder is deleted after Kimera
+closes. The diagnostic log in `C:\ProgramData\AsusFanControlKimera` and the
+application settings are kept.
 
 ## Building from Source
 
@@ -154,9 +193,8 @@ After compilation, the output files are located in:
 `AsusWinIO64.dll` must be placed next to the executable.
 
 `bin\x64\Release` is inside your user profile and can be modified without
-administrator rights, so Kimera shows the unprotected-folder warning when it is
-started from there. For daily use, copy the output files to a protected folder
-(see [Security Notes](#security-notes)).
+administrator rights. When started from there, Kimera offers to install itself;
+choose **Run from here** for development builds, or **Install** for daily use.
 
 ## Safety
 
@@ -185,19 +223,24 @@ These protections cover errors that can be handled by the application. A forced 
 Kimera runs under the `SYSTEM` account, the most privileged account in Windows.
 Every file it executes or loads therefore runs with the same privileges.
 
-- **Install Kimera in a protected folder**, such as
-  `C:\Program Files\AsusFanControlKimera`, where only administrators can write.
-  If `AsusFanControlKimera.exe`, `AsusFanControlKimera.exe.config`,
-  `AsusWinIO64.dll`, or PsExec are in a folder that standard accounts can
-  modify (for example Downloads, Desktop, or another folder inside the user
-  profile), any program running without privileges could replace them and
-  obtain `SYSTEM` access.
-- At startup Kimera checks these paths. If one of them can be modified by a
-  non-administrator account, a warning is displayed. Kimera starts only after
-  confirmation, and the choice is remembered for that folder, so **Start with
-  Windows** keeps working without further prompts.
-- PsExec is searched first in `C:\Program Files (x86)\AsusFanControl` and only
-  then next to the executable.
+- **Use the built-in installation.** If `AsusFanControlKimera.exe`,
+  `AsusFanControlKimera.exe.config`, `AsusWinIO64.dll`, or PsExec are in a
+  folder that standard accounts can modify (for example Downloads, Desktop, or
+  another folder inside the user profile), any program running without
+  privileges could replace them and obtain `SYSTEM` access. The installation
+  copies everything to `C:\Program Files\AsusFanControlKimera`, where only
+  administrators can write; if the folder permissions are weaker, they are
+  corrected or the installation stops.
+- When Kimera is run from an unprotected folder, it warns once per folder. The
+  choice is stored in the user profile, so it remains valid after updates.
+- PsExec is executed only if it has a valid Microsoft digital signature. A
+  downloaded copy is checked before it replaces the previous file.
+- **Start with Windows** is allowed only for the installed copy: the scheduled
+  task runs Kimera with administrator privileges without asking, so it must
+  never point to a file that a standard account could replace. Only SYSTEM and
+  administrators can modify the task.
+- An update can close the running Kimera through a signal that only SYSTEM and
+  administrators can send.
 - The diagnostic log folder is created, or corrected if it already exists, so
   that only `SYSTEM` and administrators can write to it, while standard users
   can still read the log. Symbolic links, junctions, and hard links found in

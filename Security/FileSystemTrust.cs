@@ -61,12 +61,20 @@ namespace AsusFanControlKimera.Security
             return false;
         }
 
+        internal static SecurityIdentifier SystemSid { get { return LocalSystem; } }
+        internal static SecurityIdentifier AdministratorsSid { get { return Administrators; } }
+
         internal static DirectorySecurity CreateProtectedDirectorySecurity()
+        {
+            return CreateProtectedDirectorySecurity(LocalSystem);
+        }
+
+        internal static DirectorySecurity CreateProtectedDirectorySecurity(SecurityIdentifier owner)
         {
             const InheritanceFlags inherit =
                 InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
             var security = new DirectorySecurity();
-            security.SetOwner(LocalSystem);
+            security.SetOwner(owner);
             security.SetAccessRuleProtection(true, false);
             security.AddAccessRule(new FileSystemAccessRule(LocalSystem,
                 FileSystemRights.FullControl, inherit, PropagationFlags.None,
